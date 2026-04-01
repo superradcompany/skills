@@ -2,7 +2,7 @@
 
 Agent skills for [microsandbox](https://github.com/superradcompany/microsandbox) and others.
 
-Supports **Claude Code**, **Cursor**, **Codex**, **Gemini CLI**, **GitHub Copilot**, and [40+ more agents](https://github.com/nicepkg/skills?tab=readme-ov-file#supported-agents).
+Supports **Claude Code**, **Cursor**, **Codex**, **Gemini CLI**, **GitHub Copilot**, and more.
 
 ## Install
 
@@ -79,7 +79,6 @@ See the [Agent Skills specification](https://agentskills.io) for details.
 - [microsandbox](https://github.com/superradcompany/microsandbox) — The microVM sandbox runtime
 - [Agent Skills specification](https://agentskills.io)
 - [Skills directory](https://skills.sh)
-- [Skills CLI](https://github.com/nicepkg/skills)
 
 ## License
 

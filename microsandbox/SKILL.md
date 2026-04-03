@@ -14,7 +14,7 @@ compatibility: >
 license: Apache-2.0
 metadata:
   author: superradcompany
-  version: "0.3.9"
+  version: "0.3.10"
 ---
 
 # microsandbox

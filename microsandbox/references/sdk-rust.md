@@ -75,7 +75,7 @@ println!("{}", output.stdout()?);    // "hello\n"
 println!("{}", output.status().code); // 0
 
 // Run with options
-let output = sb.exec("python", |e| e
+let output = sb.exec_with("python", |e| e
     .args(["compute.py"])
     .cwd("/app")
     .env("PYTHONPATH", "/app/lib")
@@ -110,7 +110,7 @@ while let Some(event) = handle.recv().await {
 ### Interactive stdin
 
 ```rust
-let mut handle = sb.exec_stream("python", |e| e.stdin_pipe().tty(true)).await?;
+let mut handle = sb.exec_stream_with("python", |e| e.stdin_pipe().tty(true)).await?;
 let stdin = handle.take_stdin().unwrap();
 stdin.write(b"print('hello')\n").await?;
 stdin.write(b"exit()\n").await?;

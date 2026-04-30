@@ -107,7 +107,8 @@ msb rm dev
 | `--max-duration` | Auto-stop timeout | `--max-duration 5m` |
 | `--idle-timeout` | Idle auto-stop | `--idle-timeout 30s` |
 | `--tmpfs` | Mount tmpfs | `--tmpfs /tmp:100M` |
-| `--script` | Inject script | `--script setup:./setup.sh` |
+| `--script` | Inline script (`NAME=BODY`) | `--script greet='echo hi'` |
+| `--script-path` | Script from host file (`NAME:PATH`) | `--script-path setup:./setup.sh` |
 
 ### Manage sandboxes
 

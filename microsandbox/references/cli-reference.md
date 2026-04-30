@@ -29,7 +29,8 @@ msb run [OPTIONS] <IMAGE> [-- <COMMAND>...]
 | `--pull` | Pull policy: `always`, `if-missing` (default), `never` |
 | `--log-level` | Runtime log level: `error`, `warn`, `info`, `debug`, `trace` |
 | `--tmpfs` | Mount tmpfs (`PATH` or `PATH:SIZE`) |
-| `--script` | Mount host file as script (`NAME:PATH`) |
+| `--script` | Register inline script (`NAME=BODY`) |
+| `--script-path` | Register script from host file (`NAME:PATH`) |
 | `--max-duration` | Auto-stop after duration (`30s`, `5m`, `1h`) |
 | `--idle-timeout` | Auto-stop on idle (`30s`, `5m`, `1h`) |
 | `--no-network` | Disable all network access |

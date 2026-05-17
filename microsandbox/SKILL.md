@@ -120,8 +120,9 @@ msb rm dev
 | `--max-duration` | Auto-stop timeout | `--max-duration 5m` |
 | `--idle-timeout` | Idle auto-stop | `--idle-timeout 30s` |
 | `--tmpfs` | Mount tmpfs | `--tmpfs /tmp:100M` |
-| `--script` | Register inline script | `--script setup='echo hi'` |
-| `--script-path` | Register script from host file | `--script-path setup:./setup.sh` |
+| `--script` | Register a shell snippet (wraps with shebang from `--shell`, decodes `\n`/`\t`/`\r`/`\\`/`\"`/`\'`) | `--script setup='apt-get update\napt-get install -y python3'` |
+| `--script-raw` | Register exact inline bytes; no shebang or decoding | `--script-raw setup=$'#!/bin/sh\necho hi\n'` |
+| `--script-path` | Register a script from a host file (contents read verbatim) | `--script-path setup:./setup.sh` |
 | `--snapshot` | Boot from a stopped-sandbox snapshot | `--snapshot baseline` |
 
 ### Manage sandboxes

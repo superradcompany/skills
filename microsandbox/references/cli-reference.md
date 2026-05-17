@@ -62,8 +62,9 @@ msb run -d --name worker python -- python worker.py
 | `--pull` | Pull policy: `always`, `if-missing`, `never` |
 | `--log-level` | Runtime log level: `error`, `warn`, `info`, `debug`, `trace` |
 | `--tmpfs` | Mount tmpfs (`PATH` or `PATH:SIZE`) |
-| `--script` | Register inline script (`NAME=BODY`) |
-| `--script-path` | Register script from host file (`NAME:PATH`) |
+| `--script` | Register a shell snippet (`NAME=BODY`). Wrapped with a shebang from `--shell` (default `/bin/sh`). Decodes `\n`, `\t`, `\r`, `\\`, `\"`, `\'`; unknown escapes pass through |
+| `--script-raw` | Register exact inline script contents (`NAME=BODY`). No escape decoding or shebang is added |
+| `--script-path` | Register a script from a host file (`NAME:PATH`). Contents read verbatim |
 | `--snapshot` | Boot from a snapshot artifact instead of an image |
 | `--max-duration` | Kill entire sandbox after duration |
 | `--idle-timeout` | Stop sandbox after inactivity duration |

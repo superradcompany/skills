@@ -9,112 +9,121 @@ tokio = { version = "1", features = ["full"] }
 ## Sandbox
 
 ```rust
-use microsandbox::Sandbox;
+use microsandbox::{NetworkPolicy, Sandbox};
 
-// Create (attached — stops when process exits)
-let sb = Sandbox::builder("worker")
-    .image("python:3.12")
-    .create()
-    .await?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let sb = Sandbox::builder("worker")
+        .image("python")
+        .memory(512)
+        .cpus(2)
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .volume("/app/src", |v| v.bind("./src").readonly())
+        .network(|n| n.policy(NetworkPolicy::public_only()))
+        .replace()
+        .create()
+        .await?;
 
-// Create (detached — survives process exit)
-let sb = Sandbox::builder("worker")
-    .image("python:3.12")
-    .create_detached()
-    .await?;
+    let output = sb.exec("python", ["-c", "print('hello')"]).await?;
+    println!("{}", output.stdout()?);
 
-// Start a stopped sandbox
+    sb.stop().await?;
+    Ok(())
+}
+```
+
+Static methods:
+
+```rust
+let builder = Sandbox::builder("worker");
 let sb = Sandbox::start("worker").await?;
-
-// Get a handle (lightweight, no live connection)
+let sb = Sandbox::start_detached("worker").await?;
 let handle = Sandbox::get("worker").await?;
-
-// List all sandboxes
-let list = Sandbox::list().await?;
-
-// Remove
+let all = Sandbox::list().await?;
 Sandbox::remove("worker").await?;
 ```
 
-### Full config
+Common builder methods:
 
 ```rust
-use microsandbox::{Sandbox, NetworkPolicy};
+use microsandbox::{LogLevel, PullPolicy, RlimitResource, Sandbox};
+use std::time::Duration;
 
 let sb = Sandbox::builder("worker")
-    .image("python:3.12")
+    .image("python")
+    // Or .from_snapshot("after-setup") instead of .image(...).
     .memory(1024)
     .cpus(2)
     .workdir("/app")
     .shell("/bin/bash")
+    .hostname("worker")
+    .user("nobody")
     .env("DEBUG", "true")
-    .env("API_PORT", "8000")
-    .volume("/app/src", |v| v.bind("./src").readonly())
-    .volume("/data", |v| v.named("my-data"))
-    .volume("/tmp/scratch", |v| v.tmpfs().size(100))
-    .patch(|p| p
-        .text("/app/config.json", r#"{"debug": true}"#, Some(0o644), false)
-        .mkdir("/app/logs", Some(0o755))
-        .copy_file("./cert.pem", "/etc/ssl/cert.pem", None, false)
-    )
-    .script("setup", "#!/bin/bash\napt-get update && apt-get install -y curl")
-    .port(8080, 80)
-    .network(|n| n.policy(NetworkPolicy::public_only()))
-    .secret_env("OPENAI_API_KEY", api_key, "api.openai.com")
+    .envs([("API_PORT", "8000")])
+    .script("setup", "#!/bin/sh\necho setup")
     .replace()
+    .replace_with_grace(Duration::from_secs(10))
+    .pull_policy(PullPolicy::IfMissing)
+    .log_level(LogLevel::Warn)
+    .max_duration(3600)
+    .idle_timeout(300)
+    .rlimit(RlimitResource::Nofile, 1024)
+    .port(8000, 8000)
+    .port_udp(5353, 5353)
     .create()
     .await?;
 ```
 
+Use `create_detached()` when the sandbox should survive the Rust process.
+
 ## Execution
 
 ```rust
-// Run command, collect output
-let output = sb.exec("python", ["-c", "print('hello')"]).await?;
-println!("{}", output.stdout()?);    // "hello\n"
-println!("{}", output.status().code); // 0
+use std::time::Duration;
 
-// Run with options
+let output = sb.exec("python", ["-c", "print('hello')"]).await?;
+println!("{}", output.stdout()?);
+println!("{}", output.stderr()?);
+println!("{}", output.status().code);
+
 let output = sb.exec_with("python", |e| e
     .args(["compute.py"])
     .cwd("/app")
     .env("PYTHONPATH", "/app/lib")
     .timeout(Duration::from_secs(30))
-    .rlimit(RlimitResource::Nofile, 1024)
+    .user("nobody")
 ).await?;
 
-// Shell command (interprets pipes, redirects, etc.)
-let output = sb.shell("ls -la /app && echo done").await?;
-
-// Run a named script
-let output = sb.shell("setup").await?;
+let shell_out = sb.shell("ls -la /app && echo done").await?;
+let code = sb.attach("bash", ["-l"]).await?;
+let code = sb.attach_shell().await?;
 ```
 
-### Streaming
+### Streaming and stdin
 
 ```rust
 use microsandbox::exec::ExecEvent;
+use tokio::io::AsyncWriteExt;
 
 let mut handle = sb.exec_stream("tail", ["-f", "/var/log/app.log"]).await?;
-
 while let Some(event) = handle.recv().await {
     match event {
         ExecEvent::Stdout(data) => print!("{}", String::from_utf8_lossy(&data)),
         ExecEvent::Stderr(data) => eprint!("{}", String::from_utf8_lossy(&data)),
-        ExecEvent::Exited { code } => break,
+        ExecEvent::Exited { code } => {
+            println!("exit {code}");
+            break;
+        }
         _ => {}
     }
 }
-```
 
-### Interactive stdin
-
-```rust
-let mut handle = sb.exec_stream_with("python", |e| e.stdin_pipe().tty(true)).await?;
-let stdin = handle.take_stdin().unwrap();
-stdin.write(b"print('hello')\n").await?;
-stdin.write(b"exit()\n").await?;
-handle.wait().await?;
+let mut py = sb.exec_stream_with("python", |e| e.stdin_pipe().tty(true)).await?;
+if let Some(mut stdin) = py.take_stdin() {
+    stdin.write_all(b"print('hello')\n").await?;
+    stdin.close().await?;
+}
+py.wait().await?;
 ```
 
 ## Filesystem
@@ -122,11 +131,13 @@ handle.wait().await?;
 ```rust
 let fs = sb.fs();
 
-fs.write("/app/data.json", b"{\"key\": \"value\"}").await?;
-let content = fs.read_string("/app/data.json").await?;
-let bytes = fs.read("/app/data.bin").await?;
+fs.write("/app/data.json", b"{\"key\":\"value\"}").await?;
+fs.write("/app/message.txt", "hello").await?;
+let text = fs.read_to_string("/app/message.txt").await?;
+let bytes = fs.read("/app/data.json").await?;
 let entries = fs.list("/app").await?;
 let meta = fs.stat("/app/data.json").await?;
+let exists = fs.exists("/app/data.json").await?;
 fs.mkdir("/app/output").await?;
 fs.copy("/app/a.txt", "/app/b.txt").await?;
 fs.rename("/app/old.txt", "/app/new.txt").await?;
@@ -136,104 +147,125 @@ fs.copy_from_host("./local.txt", "/app/local.txt").await?;
 fs.copy_to_host("/app/result.txt", "./result.txt").await?;
 ```
 
-## Lifecycle
+## Lifecycle, logs, and metrics
 
 ```rust
-sb.stop().await?;              // Graceful shutdown (SIGTERM)
-sb.kill().await?;              // Force kill (SIGKILL)
-sb.drain().await?;             // Graceful drain (SIGUSR1)
-sb.detach().await?;            // Detach — sandbox keeps running
-let status = sb.wait().await?;            // Wait for exit
-let status = sb.stop_and_wait().await?;   // Stop and wait
-sb.remove_persisted().await?;             // Remove DB record
+use microsandbox::sandbox::{LogOptions, LogSource};
+use std::time::Duration;
+
+sb.stop().await?;
+sb.kill().await?;
+sb.drain().await?;
+sb.detach().await;
+let status = sb.wait().await?;
+let status = sb.stop_and_wait().await?;
+sb.remove_persisted().await?;
+
+let metrics = sb.metrics().await?;
+let mut stream = sb.metrics_stream(Duration::from_secs(1));
+
+let entries = sb.logs(&LogOptions {
+    tail: Some(100),
+    sources: vec![LogSource::Stdout, LogSource::Stderr],
+    ..Default::default()
+})?;
 ```
 
-## Volumes
+## Volumes and mounts
 
 ```rust
 use microsandbox::Volume;
 
 let vol = Volume::builder("my-data")
     .quota(5120)
+    .label("env", "dev")
     .create()
     .await?;
 
 let handle = Volume::get("my-data").await?;
-let list = Volume::list().await?;
+let all = Volume::list().await?;
 Volume::remove("my-data").await?;
 ```
 
-## Metrics
+Mounts are configured on the sandbox builder:
 
 ```rust
-let m = sb.metrics().await?;
-// m.cpu_percent, m.memory_bytes, m.memory_limit_bytes,
-// m.disk_read_bytes, m.disk_write_bytes, m.net_rx_bytes, m.net_tx_bytes,
-// m.uptime_ms, m.timestamp_ms
-
-let all = microsandbox::all_sandbox_metrics().await?;
+let sb = Sandbox::builder("worker")
+    .image("alpine")
+    .volume("/host", |v| v.bind("./src").readonly())
+    .volume("/data", |v| v.named("my-data"))
+    .volume("/scratch", |v| v.tmpfs().size(128))
+    .volume("/disk", |v| v.disk("./data.qcow2").fstype("ext4").readonly())
+    .create()
+    .await?;
 ```
 
-## Network policies
+## Networking and secrets
 
 ```rust
-use microsandbox::NetworkPolicy;
+use microsandbox::{NetworkPolicy, Sandbox};
 
-// Presets
-NetworkPolicy::none()         // No network
-NetworkPolicy::public_only()  // Public internet only (default)
-NetworkPolicy::allow_all()    // Unrestricted
+NetworkPolicy::none();
+NetworkPolicy::public_only();
+NetworkPolicy::non_local();
+NetworkPolicy::allow_all();
 
-// Builder
-Sandbox::builder("worker")
-    .image("python:3.12")
-    .disable_network()
-    .create().await?;
-
-Sandbox::builder("worker")
-    .image("python:3.12")
+let sb = Sandbox::builder("agent")
+    .image("python")
     .network(|n| n
         .policy(NetworkPolicy::public_only())
-        .block_domain("ads.example.com")
-        .block_domain_suffix(".tracking.com")
+        .deny_domain("ads.example.com")
+        .deny_domain_suffix(".tracking.com")
+        .max_connections(50)
+        .trust_host_cas(true)
     )
-    .create().await?;
-```
-
-## Secrets
-
-```rust
-// Shorthand (single host)
-Sandbox::builder("agent")
-    .image("python:3.12")
     .secret_env("OPENAI_API_KEY", api_key, "api.openai.com")
-    .create().await?;
-
-// Full builder
-Sandbox::builder("agent")
-    .image("python:3.12")
     .secret(|s| s
-        .env("GITHUB_TOKEN")
-        .value(std::env::var("GITHUB_TOKEN")?)
-        .allow_host("api.github.com")
-        .allow_host_pattern("*.githubusercontent.com")
+        .env("STRIPE_KEY")
+        .value(stripe_key)
+        .allow_host("api.stripe.com")
+        .allow_host_pattern("*.stripe.com")
+        .inject_headers(true)
+        .inject_query(false)
     )
-    .create().await?;
+    .create()
+    .await?;
 ```
 
 ## Patches
 
 ```rust
-Sandbox::builder("worker")
-    .image("alpine:latest")
+let sb = Sandbox::builder("patched")
+    .image("alpine")
     .patch(|p| p
-        .text("/path", "content", Some(0o644), false)       // mode, replace
-        .mkdir("/path", Some(0o755))
-        .append("/path", "appended content")
-        .copy_file("./host", "/guest", None, false)          // mode, replace
-        .copy_dir("./host", "/guest", false)                 // replace
-        .symlink("/target", "/link", false)                  // replace
-        .remove("/path")
+        .text("/etc/app/config.json", r#"{"debug":true}"#, Some(0o644), true)
+        .mkdir("/var/log/app", Some(0o755))
+        .append("/etc/profile", "\nexport APP_ENV=dev\n")
+        .copy_file("./cert.pem", "/etc/ssl/cert.pem", None, true)
+        .copy_dir("./assets", "/opt/assets", true)
+        .symlink("/opt/assets", "/assets", true)
+        .remove("/tmp/old")
     )
-    .create().await?;
+    .create()
+    .await?;
+```
+
+## Snapshots
+
+```rust
+use microsandbox::{Sandbox, Snapshot};
+
+let handle = Sandbox::get("baseline").await?;
+let snap = handle.snapshot("after-setup").await?;
+let snap2 = handle.snapshot_to("/tmp/snaps/after-setup").await?;
+
+let worker = Sandbox::builder("worker")
+    .from_snapshot("after-setup")
+    .create()
+    .await?;
+
+let all = Snapshot::list().await?;
+let snap_handle = Snapshot::get("after-setup").await?;
+Snapshot::remove("after-setup", false).await?;
+Snapshot::reindex("~/.microsandbox/snapshots").await?;
 ```

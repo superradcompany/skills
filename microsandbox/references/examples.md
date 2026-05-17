@@ -2,332 +2,312 @@
 
 ## AI agent code execution
 
-Run untrusted code from an AI agent in a sandboxed microVM with secrets that never enter the VM.
+Run untrusted code in a microVM. Secrets stay on the host and are substituted
+only for allowed destinations.
 
 ### CLI
 
 ```bash
-# Create an agent sandbox with secret injection
-msb create --name agent \
+msb create python --name agent \
   -m 1G -c 2 \
   --secret "OPENAI_API_KEY=$OPENAI_API_KEY@api.openai.com" \
-  --tls-intercept \
-  python:3.12
+  --tls-intercept
 
-# Run user-provided code safely
 msb exec agent -- python -c "$USER_CODE"
-
-# Clean up
+msb logs agent --tail 100
 msb stop agent && msb rm agent
 ```
 
-### TypeScript SDK
+### TypeScript
 
 ```typescript
-import { Sandbox, Secret } from 'microsandbox'
+import { Sandbox } from "microsandbox";
 
-const sb = await Sandbox.create({
-    name: "agent",
-    image: "python:3.12",
-    memoryMib: 1024,
-    cpus: 2,
-    secrets: [
-        Secret.env("OPENAI_API_KEY", {
-            value: process.env.OPENAI_API_KEY!,
-            allowHosts: ["api.openai.com"],
-        }),
-    ],
-})
+await using sb = await Sandbox.builder("agent")
+  .image("python")
+  .memory(1024)
+  .cpus(2)
+  .secretEnv("OPENAI_API_KEY", process.env.OPENAI_API_KEY!, "api.openai.com")
+  .replace()
+  .create();
 
-const output = await sb.exec("python", ["-c", userCode])
-console.log(output.stdout())
-console.log(output.stderr())
-
-await sb.stopAndWait()
-await sb.removePersisted()
+const output = await sb.exec("python", ["-c", userCode]);
+console.log(output.stdout());
+console.error(output.stderr());
 ```
 
-### Rust SDK
+### Python
+
+```python
+from microsandbox import Sandbox, Secret
+
+async with await Sandbox.create(
+    "agent",
+    image="python",
+    memory=1024,
+    cpus=2,
+    secrets=[
+        Secret.env(
+            "OPENAI_API_KEY",
+            value=api_key,
+            allow_hosts=["api.openai.com"],
+        )
+    ],
+    replace=True,
+) as sb:
+    output = await sb.exec("python", ["-c", user_code])
+    print(output.stdout_text)
+```
+
+### Rust
 
 ```rust
-use microsandbox::Sandbox;
-
 let sb = Sandbox::builder("agent")
-    .image("python:3.12")
+    .image("python")
     .memory(1024)
     .cpus(2)
     .secret_env("OPENAI_API_KEY", api_key, "api.openai.com")
+    .replace()
     .create()
     .await?;
 
 let output = sb.exec("python", ["-c", &user_code]).await?;
-println!("stdout: {}", output.stdout()?);
-println!("stderr: {}", output.stderr()?);
-
-sb.stop_and_wait().await?;
-sb.remove_persisted().await?;
+println!("{}", output.stdout()?);
 ```
 
-## Web scraping in sandbox
+### Go
 
-Isolate web scraping with network policy enforcement.
+```go
+sb, err := m.CreateSandbox(ctx, "agent",
+    m.WithImage("python"),
+    m.WithMemory(1024),
+    m.WithCPUs(2),
+    m.WithSecrets(m.Secret.Env(
+        "OPENAI_API_KEY",
+        apiKey,
+        m.SecretEnvOptions{AllowHosts: []string{"api.openai.com"}},
+    )),
+    m.WithReplace(),
+)
+if err != nil {
+    return err
+}
+defer sb.Close()
 
-### CLI
-
-```bash
-msb run --name scraper \
-  -m 512M \
-  --dns-block-suffix ".internal.corp" \
-  python:3.12 -- python -c "
-import urllib.request
-data = urllib.request.urlopen('https://example.com').read()
-print(len(data), 'bytes')
-"
-```
-
-### TypeScript SDK
-
-```typescript
-import { NetworkPolicy, Sandbox } from 'microsandbox'
-
-const sb = await Sandbox.create({
-    name: "scraper",
-    image: "python:3.12",
-    network: {
-        ...NetworkPolicy.publicOnly(),
-        blockDomainSuffixes: [".internal.corp"],
-    },
-})
-
-await sb.shell("pip install beautifulsoup4 requests")
-const output = await sb.shell(`python -c "
-import requests
-from bs4 import BeautifulSoup
-html = requests.get('https://example.com').text
-print(BeautifulSoup(html, 'html.parser').title.string)
-"`)
-console.log(output.stdout())
+out, err := sb.Exec(ctx, "python", []string{"-c", userCode})
 ```
 
 ## Testing in isolation
 
-Run test suites in a clean, reproducible environment.
-
-### CLI
+Mount source code read-only and run tests in a fresh rootfs.
 
 ```bash
-# Mount source code and run tests
-msb run -v ./project:/app -w /app python:3.12 -- sh -c "
+msb run -v ./project:/app -w /app python -- sh -c "
   pip install -r requirements.txt
   pytest tests/ -v
 "
 
-# Node.js tests
-msb run -v ./project:/app -w /app node:22 -- sh -c "
+msb run -v ./project:/app -w /app node -- sh -c "
   npm ci
   npm test
 "
 ```
 
-### TypeScript SDK
-
 ```typescript
-import { Mount, Sandbox } from 'microsandbox'
+await using sb = await Sandbox.builder("test-runner")
+  .image("python")
+  .workdir("/app")
+  .volume("/app", (v) => v.bind("./project").readonly())
+  .replace()
+  .create();
 
-const sb = await Sandbox.create({
-    name: "test-runner",
-    image: "python:3.12",
-    workdir: "/app",
-    volumes: {
-        "/app": Mount.bind("./project", { readonly: true }),
-    },
-})
-
-await sb.shell("pip install -r requirements.txt")
-const result = await sb.shell("pytest tests/ -v")
-console.log(result.stdout())
-process.exit(result.success ? 0 : 1)
+await sb.shell("pip install -r requirements.txt");
+const result = await sb.shell("pytest tests/ -v");
+process.exit(result.success ? 0 : 1);
 ```
 
-## Development environment
+```python
+from microsandbox import Sandbox, Volume
 
-Persistent sandbox for iterative development.
+sb = await Sandbox.create(
+    "test-runner",
+    image="python",
+    workdir="/app",
+    volumes={"/app": Volume.bind("./project", readonly=True)},
+    replace=True,
+)
+result = await sb.shell("pytest tests/ -v")
+```
 
-### CLI
+## Persistent development environment
 
 ```bash
-# Create a dev sandbox with ports and volumes
-msb create --name dev \
+msb create node --name dev \
   -m 2G -c 4 \
   -v ./src:/app/src \
   -v node_modules:/app/node_modules \
   -p 3000:3000 \
-  -p 5432:5432 \
-  -w /app \
-  node:22
+  -w /app
 
-# Install deps
 msb exec dev -- npm install
-
-# Start dev server (detached)
-msb exec dev -- sh -c "npm run dev &"
-
-# Check logs
-msb exec dev -- cat /tmp/dev.log
-
-# Stop at end of day, resume tomorrow
+msb exec dev -- sh -c "npm run dev > /tmp/dev.log 2>&1 &"
+msb logs dev -f
 msb stop dev
 msb start dev
 ```
 
-## File operations
-
-Read and write files in the sandbox filesystem.
-
-### TypeScript SDK
+## Filesystem operations
 
 ```typescript
-const fs = sb.fs()
+const fs = sb.fs();
 
-// Write config
-await fs.write("/app/config.json", Buffer.from(JSON.stringify(config)))
+await fs.write("/app/config.json", JSON.stringify(config));
+await fs.copyFromHost("./data/input.csv", "/app/input.csv");
+await sb.exec("python", ["process.py"]);
+await fs.copyToHost("/app/output.csv", "./results/output.csv");
 
-// Copy host files into sandbox
-await fs.copyFromHost("./data/input.csv", "/app/input.csv")
-
-// Run processing
-await sb.exec("python", ["process.py"])
-
-// Retrieve results
-await fs.copyToHost("/app/output.csv", "./results/output.csv")
-
-// List directory
-const entries = await fs.list("/app")
-for (const entry of entries) {
-    console.log(`${entry.kind} ${entry.path} (${entry.size} bytes)`)
+for (const entry of await fs.list("/app")) {
+  console.log(`${entry.kind} ${entry.path} (${entry.size} bytes)`);
 }
 ```
 
-## Network-isolated sandbox
+```python
+fs = sb.fs
 
-Fully air-gapped execution.
+await fs.write_text("/app/config.json", json.dumps(config))
+await fs.copy_from_host("./data/input.csv", "/app/input.csv")
+await sb.exec("python", ["process.py"])
+await fs.copy_to_host("/app/output.csv", "./results/output.csv")
+```
 
-### CLI
+## Network policy patterns
+
+### Air-gapped
 
 ```bash
-# Pre-pull the image (network needed for this)
-msb pull python:3.12
-
-# Run with no network at all
-msb run --no-network python:3.12 -- python -c "
+msb pull python
+msb run --network-policy none python -- python -c "
+import urllib.request
 try:
-    import urllib.request
     urllib.request.urlopen('https://example.com')
 except Exception as e:
-    print(f'Network blocked: {e}')
+    print('Network blocked:', e)
 "
 ```
 
-### TypeScript SDK
+```typescript
+await using sb = await Sandbox.builder("isolated")
+  .image("python")
+  .network((n) => n.policy(NetworkPolicy.none()))
+  .create();
+```
+
+```python
+sb = await Sandbox.create("isolated", image="python", network=Network.none())
+```
+
+### Allow public internet but deny trackers
+
+```bash
+msb run --deny-domain-suffix ".tracking.com" python -- python script.py
+```
 
 ```typescript
-import { NetworkPolicy, Sandbox } from 'microsandbox'
+await using sb = await Sandbox.builder("scraper")
+  .image("python")
+  .network((n) =>
+    n.policy(NetworkPolicy.publicOnly()).denyDomainSuffix(".tracking.com"),
+  )
+  .create();
+```
 
-const sb = await Sandbox.create({
-    name: "isolated",
-    image: "python:3.12",
-    network: NetworkPolicy.none(),
-})
+```python
+from microsandbox import Network
 
-const output = await sb.exec("python", ["-c", untrustedCode])
+sb = await Sandbox.create(
+    "scraper",
+    image="python",
+    network=Network(deny_domain_suffixes=(".tracking.com",)),
+)
 ```
 
 ## Rootfs patching
 
 Customize the filesystem before the VM boots.
 
-### TypeScript SDK
-
 ```typescript
-import { Patch, Sandbox } from 'microsandbox'
-
-const sb = await Sandbox.create({
-    name: "patched",
-    image: "alpine:latest",
-    patches: [
-        // Write config files
-        Patch.text("/etc/app/config.yaml", `
-server:
-  port: 8080
-  debug: true
-`),
-        // Create directories
-        Patch.mkdir("/app/data"),
-        Patch.mkdir("/app/logs"),
-
-        // Copy project files from host
-        Patch.copyDir("./app", "/app/src"),
-
-        // Modify existing files
-        Patch.append("/etc/hosts", "127.0.0.1 myapp.local\n"),
-
-        // Remove unwanted files
-        Patch.remove("/etc/motd"),
-    ],
-})
+await using sb = await Sandbox.builder("patched")
+  .image("alpine")
+  .patch((p) =>
+    p.text("/etc/app/config.yaml", "debug: true\n", { replace: true })
+      .mkdir("/var/log/app")
+      .copyFile("./cert.pem", "/etc/ssl/cert.pem", { replace: true }),
+  )
+  .create();
 ```
 
-## Named volumes for data persistence
+```python
+from microsandbox import Patch, Sandbox
 
-Share data between sandboxes using named volumes.
+sb = await Sandbox.create(
+    "patched",
+    image="alpine",
+    patches=[
+        Patch.text("/etc/app/config.yaml", "debug: true\n", replace=True),
+        Patch.mkdir("/var/log/app"),
+        Patch.copy_file("./cert.pem", "/etc/ssl/cert.pem", replace=True),
+    ],
+)
+```
 
-### CLI
+## Snapshots for reusable build state
+
+Install dependencies once, stop the sandbox, snapshot it, then boot fresh
+sandboxes from that snapshot.
 
 ```bash
-# Create a shared data volume
-msb volume create shared-data --size 5G
-
-# Writer sandbox
-msb run --name writer -v shared-data:/data alpine -- sh -c "
-  echo 'processed results' > /data/results.txt
-  date >> /data/results.txt
-"
-
-# Reader sandbox (separate VM, same data)
-msb run --name reader -v shared-data:/data alpine -- cat /data/results.txt
-
-# Clean up
-msb volume rm shared-data
+msb run --name baseline --detach python -- sleep 3600
+msb exec baseline -- pip install requests
+msb stop baseline
+msb snapshot create after-pip-install --from baseline
+msb run --name worker --snapshot after-pip-install \
+  -- python -c "import requests; print(requests.__version__)"
 ```
 
-## Multi-secret agent
+```typescript
+const baseline = await Sandbox.get("baseline");
+const snap = await baseline.snapshot("after-pip-install");
 
-Use multiple API keys with host-scoped security.
+await using worker = await Sandbox.builder("worker")
+  .fromSnapshot("after-pip-install")
+  .create();
+```
 
-### TypeScript SDK
+```python
+h = await Sandbox.get("baseline")
+snap = await h.snapshot("after-pip-install")
+worker = await Sandbox.create("worker", snapshot="after-pip-install")
+```
+
+## Interactive shell attach
+
+```bash
+msb run --name dev alpine -- sh
+msb exec dev -- bash
+```
 
 ```typescript
-import { Sandbox, Secret } from 'microsandbox'
+const code = await sb.attachShell();
+```
 
-const sb = await Sandbox.create({
-    name: "multi-agent",
-    image: "python:3.12",
-    secrets: [
-        Secret.env("OPENAI_API_KEY", {
-            value: process.env.OPENAI_API_KEY!,
-            allowHosts: ["api.openai.com"],
-        }),
-        Secret.env("GITHUB_TOKEN", {
-            value: process.env.GITHUB_TOKEN!,
-            allowHosts: ["api.github.com"],
-            allowHostPatterns: ["*.githubusercontent.com"],
-        }),
-        Secret.env("SLACK_TOKEN", {
-            value: process.env.SLACK_TOKEN!,
-            allowHosts: ["slack.com"],
-            allowHostPatterns: ["*.slack.com"],
-            onViolation: "block-and-terminate",
-        }),
-    ],
-})
+```python
+code = await sb.attach_shell()
+```
+
+```rust
+let code = sb.attach_shell().await?;
+```
+
+```go
+code, err := sb.AttachShell(ctx)
 ```

@@ -4,238 +4,255 @@
 npm install microsandbox
 ```
 
+The current TypeScript SDK is builder-only for new sandboxes. Start with
+`Sandbox.builder(name)`, chain configuration, then call `.create()` or
+`.createDetached()`.
+
 ## Sandbox
 
 ```typescript
-import { Sandbox } from 'microsandbox'
+import { NetworkPolicy, Sandbox } from "microsandbox";
 
-// Create (attached — stops when process exits)
-const sb = await Sandbox.create({ name: "worker", image: "python:3.12" })
+await using sb = await Sandbox.builder("worker")
+  .image("python")
+  .memory(512)
+  .cpus(2)
+  .env("PYTHONDONTWRITEBYTECODE", "1")
+  .volume("/app/src", (m) => m.bind("./src").readonly())
+  .network((n) => n.policy(NetworkPolicy.publicOnly()))
+  .replace()
+  .create();
 
-// Create (detached — survives process exit)
-const sb = await Sandbox.createDetached({ name: "worker", image: "python:3.12" })
-
-// Start a stopped sandbox
-const sb = await Sandbox.start("worker")
-
-// Get a handle (lightweight, no live connection)
-const handle = await Sandbox.get("worker")
-
-// List all sandboxes
-const list = await Sandbox.list()
-
-// Remove
-await Sandbox.remove("worker")
+const output = await sb.exec("python", ["-c", "print('hello')"]);
+console.log(output.stdout());
 ```
 
-### Full config
+Static methods:
 
 ```typescript
-import { Mount, NetworkPolicy, Patch, Secret, Sandbox } from 'microsandbox'
-
-const sb = await Sandbox.create({
-    name: "worker",
-    image: "python:3.12",
-    memoryMib: 1024,
-    cpus: 2,
-    workdir: "/app",
-    shell: "/bin/bash",
-    env: { DEBUG: "true", API_PORT: "8000" },
-    volumes: {
-        "/app/src": Mount.bind("./src", { readonly: true }),
-        "/data": Mount.named("my-data"),
-        "/tmp/scratch": Mount.tmpfs({ sizeMib: 100 }),
-    },
-    patches: [
-        Patch.text("/app/config.json", '{"debug": true}'),
-        Patch.mkdir("/app/logs"),
-        Patch.copyFile("./cert.pem", "/etc/ssl/cert.pem"),
-    ],
-    scripts: {
-        setup: "#!/bin/bash\napt-get update && apt-get install -y curl",
-        start: "#!/bin/bash\nexec python /app/main.py",
-    },
-    ports: { "8080": 80 },
-    network: NetworkPolicy.publicOnly(),
-    secrets: [
-        Secret.env("OPENAI_API_KEY", {
-            value: process.env.OPENAI_API_KEY!,
-            allowHosts: ["api.openai.com"],
-        }),
-    ],
-    replace: true,
-    pullPolicy: "if-missing",
-    logLevel: "warn",
-    maxDurationSecs: 3600,
-    labels: { team: "ai" },
-})
+const builder = Sandbox.builder("worker");
+const sb = await Sandbox.start("worker");
+const sbDetached = await Sandbox.startDetached("worker");
+const handle = await Sandbox.get("worker");
+const all = await Sandbox.list();
+await Sandbox.remove("worker");
 ```
+
+Builder methods:
+
+```typescript
+await using sb = await Sandbox.builder("worker")
+  .image("python")                 // OCI image, local rootfs, or disk path
+  // .fromSnapshot("after-setup")  // Use instead of image()
+  .memory(1024)
+  .cpus(2)
+  .workdir("/app")
+  .shell("/bin/bash")
+  .hostname("worker")
+  .user("nobody")
+  .env("DEBUG", "true")
+  .envs({ API_PORT: "8000" })
+  .script("setup", "#!/bin/sh\necho setup")
+  .replace()
+  .replaceWithGrace(10_000)
+  .maxDuration(3600)
+  .idleTimeout(300)
+  .pullPolicy("if-missing")
+  .port(8000, 8000)
+  .portUdp(5353, 5353)
+  .create();
+```
+
+Use `createDetached()` when the sandbox should survive the Node.js process.
+Use `createWithPullProgress()` or `createDetachedWithPullProgress()` when you
+need image pull progress events.
 
 ## Execution
 
 ```typescript
-// Run command, collect output
-const output = await sb.exec("python", ["-c", "print('hello')"])
-console.log(output.stdout())   // "hello\n"
-console.log(output.code)       // 0
-console.log(output.success)    // true
+const output = await sb.exec("python", ["-c", "print('hello')"]);
+console.log(output.stdout());
+console.log(output.stderr());
+console.log(output.code);
+console.log(output.success);
 
-// Run with config
-const output = await sb.execWithConfig({
-    cmd: "python",
-    args: ["compute.py"],
-    cwd: "/app",
-    env: { PYTHONPATH: "/app/lib" },
-    timeoutMs: 30_000,
-    user: "nobody",
-    tty: false,
-})
+const output2 = await sb.execWith("python", (e) =>
+  e.args(["compute.py"])
+    .cwd("/app")
+    .env("PYTHONPATH", "/app/lib")
+    .timeout(30_000)
+    .user("nobody"),
+);
 
-// Shell command (interprets pipes, redirects, etc.)
-const output = await sb.shell("ls -la /app && echo done")
-
-// Run a named script
-const output = await sb.run("setup")
+const shellOut = await sb.shell("ls -la /app && echo done");
+const exitCode = await sb.attach("bash", ["-l"]);
+const shellExitCode = await sb.attachShell();
 ```
 
-### Streaming
+### Streaming and stdin
 
 ```typescript
-const handle = await sb.execStream("tail", ["-f", "/var/log/app.log"])
+const handle = await sb.execStream("tail", ["-f", "/var/log/app.log"]);
 
-let event
-while ((event = await handle.recv()) !== null) {
-    switch (event.eventType) {
-        case 'stdout': process.stdout.write(event.data); break
-        case 'stderr': process.stderr.write(event.data); break
-        case 'exited': console.log(`Exit: ${event.code}`); break
-    }
+for await (const event of handle) {
+  if (event.kind === "stdout") process.stdout.write(event.data);
+  if (event.kind === "stderr") process.stderr.write(event.data);
+  if (event.kind === "exited") break;
 }
-```
 
-### Interactive stdin
-
-```typescript
-const handle = await sb.execStream("python")
-const stdin = await handle.takeStdin()
-await stdin.write(Buffer.from("print('hello')\n"))
-await stdin.write(Buffer.from("exit()\n"))
-await handle.wait()
+const py = await sb.execStreamWith("python", (e) => e.stdinPipe().tty(true));
+const stdin = await py.takeStdin();
+await stdin?.write(Buffer.from("print('hello')\n"));
+await stdin?.close();
+await py.wait();
 ```
 
 ## Filesystem
 
 ```typescript
-const fs = sb.fs()
+const fs = sb.fs();
 
-await fs.write("/app/data.json", Buffer.from('{"key": "value"}'))
-const content = await fs.readString("/app/data.json")
-const bytes = await fs.read("/app/data.bin")
-const entries = await fs.list("/app")         // FsEntry[]
-const meta = await fs.stat("/app/data.json")  // FsMetadata
-const exists = await fs.exists("/app/data.json")
-await fs.mkdir("/app/output")
-await fs.copy("/app/a.txt", "/app/b.txt")
-await fs.rename("/app/old.txt", "/app/new.txt")
-await fs.remove("/app/temp.txt")
-await fs.removeDir("/app/cache")
-await fs.copyFromHost("./local.txt", "/app/local.txt")
-await fs.copyToHost("/app/result.txt", "./result.txt")
-```
+await fs.write("/app/data.json", '{"key":"value"}');
+await fs.write("/app/message.txt", "hello");
+const text = await fs.readToString("/app/message.txt");
+const bytes = await fs.read("/app/data.json");
+const entries = await fs.list("/app");
+const meta = await fs.stat("/app/data.json");
+const exists = await fs.exists("/app/data.json");
+await fs.mkdir("/app/output");
+await fs.copy("/app/a.txt", "/app/b.txt");
+await fs.rename("/app/old.txt", "/app/new.txt");
+await fs.remove("/app/temp.txt");
+await fs.removeDir("/app/cache");
+await fs.copyFromHost("./local.txt", "/app/local.txt");
+await fs.copyToHost("/app/result.txt", "./result.txt");
 
-## Lifecycle
-
-```typescript
-await sb.stop()            // Graceful shutdown (SIGTERM)
-await sb.kill()            // Force kill (SIGKILL)
-await sb.drain()           // Graceful drain (SIGUSR1)
-await sb.detach()          // Detach — sandbox keeps running
-const status = await sb.wait()            // Wait for exit
-const status = await sb.stopAndWait()     // Stop and wait
-await sb.removePersisted()                // Remove DB record
-```
-
-## Volumes
-
-```typescript
-import { Volume } from 'microsandbox'
-
-const vol = await Volume.create({ name: "my-data", quotaMib: 5120 })
-const handle = await Volume.get("my-data")
-const list = await Volume.list()
-await Volume.remove("my-data")
-```
-
-## Metrics
-
-```typescript
-import { allSandboxMetrics } from 'microsandbox'
-
-const m = await sb.metrics()
-// m.cpuPercent, m.memoryBytes, m.memoryLimitBytes,
-// m.diskReadBytes, m.diskWriteBytes, m.netRxBytes, m.netTxBytes,
-// m.uptimeMs, m.timestampMs
-
-const all = await allSandboxMetrics()  // Record<string, SandboxMetrics>
-```
-
-## Network policies
-
-```typescript
-import { NetworkPolicy } from 'microsandbox'
-
-NetworkPolicy.none()        // No network
-NetworkPolicy.publicOnly()  // Public internet only (default)
-NetworkPolicy.allowAll()    // Unrestricted
-
-// Custom rules
-{
-    rules: [
-        { action: "allow", direction: "outbound", protocol: "tcp", port: "443" },
-        { action: "deny", direction: "outbound", destination: "private" },
-    ],
-    defaultAction: "deny",
-    blockDomains: ["ads.example.com"],
-    blockDomainSuffixes: [".tracking.com"],
-    maxConnections: 50,
+for await (const chunk of await fs.readStream("/var/log/syslog")) {
+  process.stdout.write(chunk);
 }
 ```
 
-## Secrets
+## Lifecycle, logs, and metrics
 
 ```typescript
-import { Secret } from 'microsandbox'
+await sb.stop();
+await sb.kill();
+await sb.drain();
+await sb.detach();
+const status = await sb.wait();
+const stopped = await sb.stopAndWait();
+await sb.removePersisted();
 
-Secret.env("API_KEY", {
-    value: "sk-xxx",
-    allowHosts: ["api.example.com"],
-    allowHostPatterns: ["*.example.com"],
-    placeholder: "$MSB_API_KEY",        // auto-generated if omitted
-    requireTls: true,                    // default
-    onViolation: "block-and-log",       // default
-})
+const metrics = await sb.metrics();
+for await (const sample of await sb.metricsStream(1000)) {
+  console.log(sample.cpuPercent, sample.memoryBytes);
+}
+
+const logs = await sb.logs({ tail: 100, sources: ["stdout", "stderr"] });
+for (const entry of logs) console.log(entry.text());
+```
+
+## Volumes and mounts
+
+```typescript
+import { Volume } from "microsandbox";
+
+const vol = await Volume.builder("my-data")
+  .quota(5120)
+  .label("env", "dev")
+  .create();
+
+const handle = await Volume.get("my-data");
+const allVolumes = await Volume.list();
+await Volume.remove("my-data");
+```
+
+Mounts are configured on the sandbox builder:
+
+```typescript
+await using sb = await Sandbox.builder("worker")
+  .image("alpine")
+  .volume("/host", (m) => m.bind("./src").readonly())
+  .volume("/data", (m) => m.named("my-data"))
+  .volume("/scratch", (m) => m.tmpfs().size(128))
+  .volume("/disk", (m) => m.disk("./data.qcow2").fstype("ext4").readonly())
+  .create();
+```
+
+## Networking and secrets
+
+```typescript
+import { Destination, NetworkPolicy, Rule, Sandbox } from "microsandbox";
+
+NetworkPolicy.none();
+NetworkPolicy.publicOnly();
+NetworkPolicy.nonLocal();
+NetworkPolicy.allowAll();
+
+const policy = {
+  defaultEgress: "deny",
+  defaultIngress: "allow",
+  rules: [
+    Rule.allowEgress(Destination.domain("api.openai.com")),
+    Rule.denyEgress(Destination.group("metadata")),
+  ],
+};
+
+await using sb = await Sandbox.builder("agent")
+  .image("python")
+  .network((n) =>
+    n.policy(policy)
+      .denyDomain("ads.example.com")
+      .denyDomainSuffix(".tracking.com")
+      .maxConnections(50)
+      .trustHostCas(true),
+  )
+  .secretEnv("OPENAI_API_KEY", process.env.OPENAI_API_KEY!, "api.openai.com")
+  .secret((s) =>
+    s.env("STRIPE_KEY")
+      .value(process.env.STRIPE_KEY!)
+      .allowHost("api.stripe.com")
+      .allowHostPattern("*.stripe.com")
+      .injectHeaders(true)
+      .injectQuery(false),
+  )
+  .create();
 ```
 
 ## Patches
 
-```typescript
-import { Patch } from 'microsandbox'
+Rootfs patches are applied before boot:
 
-Patch.text("/path", "content", { mode: 0o644, replace: true })
-Patch.mkdir("/path", { mode: 0o755 })
-Patch.append("/path", "appended content")
-Patch.copyFile("./host/file", "/guest/file", { replace: true })
-Patch.copyDir("./host/dir", "/guest/dir", { replace: true })
-Patch.symlink("/target", "/link", { replace: true })
-Patch.remove("/path")
+```typescript
+await using sb = await Sandbox.builder("patched")
+  .image("alpine")
+  .patch((p) =>
+    p.text("/etc/app/config.json", '{"debug":true}', { mode: 0o644, replace: true })
+      .mkdir("/var/log/app", { mode: 0o755 })
+      .append("/etc/profile", "\nexport APP_ENV=dev\n")
+      .copyFile("./cert.pem", "/etc/ssl/cert.pem", { replace: true })
+      .copyDir("./assets", "/opt/assets", { replace: true })
+      .symlink("/opt/assets", "/assets", { replace: true })
+      .remove("/tmp/old"),
+  )
+  .create();
 ```
 
-## Mounts
+## Snapshots
 
 ```typescript
-import { Mount } from 'microsandbox'
+import { Sandbox, Snapshot } from "microsandbox";
 
-Mount.bind("./host/path", { readonly: true })
-Mount.named("volume-name", { readonly: false })
-Mount.tmpfs({ sizeMib: 100 })
+const handle = await Sandbox.get("baseline");
+const snap = await handle.snapshot("after-setup");
+const snap2 = await handle.snapshotTo("/tmp/snaps/after-setup");
+
+await using worker = await Sandbox.builder("worker")
+  .fromSnapshot("after-setup")
+  .create();
+
+const allSnaps = await Snapshot.list();
+const snapHandle = await Snapshot.get("after-setup");
+await Snapshot.remove("after-setup");
+await Snapshot.reindex("~/.microsandbox/snapshots");
 ```

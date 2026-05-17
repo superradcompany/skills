@@ -39,12 +39,12 @@ npx skills add superradcompany/skills --skill microsandbox
 **What it teaches your agent:**
 
 - Create ephemeral and persistent sandboxes from OCI images
-- Execute commands, open shells, manage sandbox lifecycle
+- Execute commands, attach shells, read logs, manage sandbox lifecycle
 - Mount volumes, publish ports, set environment variables
 - Inject secrets with placeholder substitution (credentials never enter the VM)
 - Enforce network policies, block domains, intercept TLS
 - Patch the rootfs before boot, inject scripts
-- Manage images, volumes, and registry authentication
+- Manage images, volumes, snapshots, registry authentication, and self-updates
 
 **Included references:**
 
@@ -53,8 +53,10 @@ npx skills add superradcompany/skills --skill microsandbox
 | `SKILL.md` | Core instructions for using the `msb` CLI |
 | `scripts/setup.sh` | Installs `msb` + `libkrunfw` via official installer |
 | `references/cli-reference.md` | Complete `msb` command reference with all flags |
-| `references/sdk-typescript.md` | TypeScript SDK quick reference |
 | `references/sdk-rust.md` | Rust SDK quick reference |
+| `references/sdk-typescript.md` | TypeScript SDK quick reference |
+| `references/sdk-python.md` | Python SDK quick reference |
+| `references/sdk-go.md` | Go SDK quick reference |
 | `references/examples.md` | Common patterns: AI agent execution, web scraping, testing, secrets |
 
 **Requirements:** macOS (Apple Silicon) or Linux (x86_64/ARM64) with KVM support.
@@ -76,7 +78,7 @@ See the [Agent Skills specification](https://agentskills.io) for details.
 
 ## Related Links
 
-- [microsandbox](https://github.com/superradcompany/microsandbox) — The microVM sandbox runtime
+- [microsandbox](https://github.com/superradcompany/microsandbox) - The microVM sandbox runtime
 - [Agent Skills specification](https://agentskills.io)
 - [Skills directory](https://skills.sh)
 

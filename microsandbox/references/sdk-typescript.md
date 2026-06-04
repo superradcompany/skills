@@ -5,8 +5,7 @@ npm install microsandbox
 ```
 
 The current TypeScript SDK is builder-only for new sandboxes. Start with
-`Sandbox.builder(name)`, chain configuration, then call `.create()` or
-`.createDetached()`.
+`Sandbox.builder(name)`, chain configuration, then call `.create()`.
 
 ## Sandbox
 
@@ -25,6 +24,15 @@ await using sb = await Sandbox.builder("worker")
 
 const output = await sb.exec("python", ["-c", "print('hello')"]);
 console.log(output.stdout());
+```
+
+Create a detached sandbox by setting the builder flag before calling `create()`:
+
+```typescript
+const sb = await Sandbox.builder("worker")
+  .image("python:3.12")
+  .detached(true)
+  .create();
 ```
 
 Static methods:
@@ -55,6 +63,7 @@ await using sb = await Sandbox.builder("worker")
   .script("setup", "#!/bin/sh\necho setup")
   .replace()
   .replaceWithGrace(10_000)
+  .detached(true)
   .maxDuration(3600)
   .idleTimeout(300)
   .pullPolicy("if-missing")
@@ -63,9 +72,8 @@ await using sb = await Sandbox.builder("worker")
   .create();
 ```
 
-Use `createDetached()` when the sandbox should survive the Node.js process.
-Use `createWithPullProgress()` or `createDetachedWithPullProgress()` when you
-need image pull progress events.
+Use `.detached(true).create()` when the sandbox should survive the Node.js process.
+Use `.detached(true).createWithPullProgress()` when you need image pull progress events for a detached sandbox.
 
 ## Execution
 

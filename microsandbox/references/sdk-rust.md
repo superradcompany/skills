@@ -2,7 +2,7 @@
 
 ```toml
 [dependencies]
-microsandbox = "0.4.2"
+microsandbox = "0.5.4"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -30,6 +30,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sb.stop().await?;
     Ok(())
 }
+```
+
+Create a detached sandbox by setting the builder flag before calling `create()`:
+
+```rust
+let sb = Sandbox::builder("worker")
+    .image("python:3.12")
+    .detached(true)
+    .create()
+    .await?;
 ```
 
 Static methods:
@@ -74,7 +84,7 @@ let sb = Sandbox::builder("worker")
     .await?;
 ```
 
-Use `create_detached()` when the sandbox should survive the Rust process.
+Use `.detached(true).create()` when the sandbox should survive the Rust process.
 
 ## Execution
 

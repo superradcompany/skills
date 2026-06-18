@@ -40,11 +40,12 @@ npx skills add superradcompany/skills --skill microsandbox
 
 - Create ephemeral and persistent sandboxes from OCI images
 - Execute commands, attach shells, read logs, manage sandbox lifecycle
-- Mount volumes, publish ports, set environment variables
+- Copy files, mount volumes, publish ports, set environment variables
 - Inject secrets with placeholder substitution (credentials never enter the VM)
-- Enforce network policies, block domains, intercept TLS
+- Enforce network rules, block destinations, intercept TLS
 - Patch the rootfs before boot, inject scripts
-- Manage images, volumes, snapshots, registry authentication, and self-updates
+- Manage images, volumes, snapshots, registry authentication, SSH, and SFTP
+- Prefer canonical `msb` commands in generated scripts instead of aliases
 
 **Included references:**
 
@@ -52,7 +53,7 @@ npx skills add superradcompany/skills --skill microsandbox
 |------|-------------|
 | `SKILL.md` | Core instructions for using the `msb` CLI |
 | `scripts/setup.sh` | Installs `msb` + `libkrunfw` via official installer |
-| `references/cli-reference.md` | Complete `msb` command reference with all flags |
+| `references/cli-reference.md` | Agent-oriented `msb` command reference for sandbox operations |
 | `references/sdk-rust.md` | Rust SDK quick reference |
 | `references/sdk-typescript.md` | TypeScript SDK quick reference |
 | `references/sdk-python.md` | Python SDK quick reference |

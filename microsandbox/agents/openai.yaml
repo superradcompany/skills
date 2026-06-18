@@ -1,0 +1,4 @@
+interface:
+  display_name: "Microsandbox"
+  short_description: "Run and manage isolated microVM sandboxes"
+  default_prompt: "Use $microsandbox to run this workflow inside an isolated microVM sandbox."

@@ -1,25 +1,19 @@
 ---
 name: microsandbox
 description: >
-  Create and manage isolated microVM sandboxes for safe code execution,
-  testing, and development. Use when the user needs to run untrusted code,
-  create isolated environments, execute commands in a sandbox, manage
-  sandbox filesystems, or work with OCI container images in microVMs.
-  Handles sandbox lifecycle, command execution, logs, networking, volumes,
-  snapshots, secrets, and file operations via the msb CLI and SDKs.
-compatibility: >
-  CLI requires msb and libkrunfw. SDKs bundle or install the runtime as
-  documented per language. macOS requires Apple Silicon. Linux requires
-  x86_64/ARM64 with KVM support.
-license: Apache-2.0
-metadata:
-  author: superradcompany
+  Create and manage isolated microsandbox microVMs for safe code execution, testing, development, and agent workflows. Use when the user needs to run untrusted code, create ephemeral or persistent sandboxes, execute commands, copy files, inspect logs and metrics, configure networking or secrets, mount volumes, manage images or snapshots, or use the microsandbox CLI and SDKs.
 ---
 
 # microsandbox
 
-microsandbox creates hardware-isolated microVMs. Each sandbox is a real VM with
-its own Linux kernel, not a container.
+microsandbox creates hardware-isolated microVMs. Each sandbox is a real VM with its own Linux kernel, not a container.
+
+## Agent operating guidance
+
+- Prefer canonical command names in generated instructions and scripts: use `msb list`, `msb status`, `msb remove`, `msb copy`, `msb image list`, `msb image remove`, `msb volume list`, and `msb snapshot list` instead of shorter aliases.
+- Do not use host installation management such as `msb install`, `msb uninstall`, `msb self update`, or `msb self uninstall` unless the user explicitly asks to manage their local `msb` installation.
+- Treat host paths, secrets, mounted directories, registry credentials, SSH keys, and published ports as security-sensitive. Prefer least privilege: read-only mounts, explicit allow rules, named volumes for durable state, and scoped secret hosts.
+- Use the CLI for quick local workflows and the SDK references when writing application code. Load the relevant reference file only when needed.
 
 ## Setup
 
@@ -72,7 +66,7 @@ msb create [options] <image> --name <name>
 msb exec <name> -- <command>
 msb stop <name>
 msb start <name>
-msb rm <name>
+msb remove <name>
 ```
 
 Example workflow:
@@ -93,7 +87,7 @@ msb start dev
 
 # Clean up.
 msb stop dev
-msb rm dev
+msb remove dev
 ```
 
 ### Common sandbox options
@@ -103,9 +97,11 @@ msb rm dev
 | `-n`, `--name` | Name the sandbox | `--name my-sandbox` |
 | `-m`, `--memory` | Memory allocation | `-m 512M`, `-m 1G` |
 | `-c`, `--cpus` | Number of vCPUs | `-c 2` |
-| `-v`, `--volume` | Mount volume | `-v /host/path:/guest/path` |
-| `-p`, `--port` | Publish port | `-p 8080:80`, `-p 5353:5353/udp` |
+| `-v`, `--volume` | Mount host path or named volume | `-v ./src:/app:ro`, `-v data:/data` |
+| `--mount-dir`, `--mount-file`, `--mount-disk`, `--mount-named` | Explicit mount kind | `--mount-named data:/data:kind=disk,size=10G` |
+| `-p`, `--port` | Publish port | `-p 8080:80`, `-p 0.0.0.0:8080:80`, `-p 5353:5353/udp` |
 | `-e`, `--env` | Set env variable | `-e API_KEY=xxx` |
+| `--label` | Attach label for selection/metrics | `--label app=worker` |
 | `-w`, `--workdir` | Working directory | `-w /app` |
 | `-t`, `--tty` | Force pseudo-terminal allocation | `-t` |
 | `-d`, `--detach` | Run in background, for `msb run` | `-d` |
@@ -113,53 +109,74 @@ msb rm dev
 | `-H`, `--hostname` | Set guest hostname | `-H myhost` |
 | `--shell` | Default shell program | `--shell /bin/bash` |
 | `--replace` | Replace existing sandbox | `--replace` |
-| `--replace-with-grace` | Grace before SIGKILL during replace | `--replace-with-grace 30s` |
+| `--replace-with-timeout` | Grace before SIGKILL during replace | `--replace-with-timeout 30s` |
 | `--entrypoint` | Override image entrypoint | `--entrypoint /bin/sh` |
 | `--init`, `--init-arg`, `--init-env` | Hand off PID 1 to guest init | `--init /sbin/init` |
 | `--pull` | Pull policy | `--pull always` |
+| `--oci-upper-size` | Writable overlay upper size for OCI images | `--oci-upper-size 8G` |
+| `--security` | In-guest security profile | `--security restricted` |
 | `--max-duration` | Auto-stop timeout | `--max-duration 5m` |
 | `--idle-timeout` | Idle auto-stop | `--idle-timeout 30s` |
 | `--tmpfs` | Mount tmpfs | `--tmpfs /tmp:100M` |
+| `--copy`, `--copy-file`, `--copy-dir`, `--mkdir`, `--rm` | Patch rootfs before boot | `--copy ./config:/etc/app/config` |
 | `--script` | Register a shell snippet (wraps with shebang from `--shell`, decodes `\n`/`\t`/`\r`/`\\`/`\"`/`\'`) | `--script setup='apt-get update\napt-get install -y python3'` |
 | `--script-raw` | Register exact inline bytes; no shebang or decoding | `--script-raw setup=$'#!/bin/sh\necho hi\n'` |
 | `--script-path` | Register a script from a host file (contents read verbatim) | `--script-path setup:./setup.sh` |
 | `--snapshot` | Boot from a stopped-sandbox snapshot | `--snapshot baseline` |
+| `--no-net`, `--net-default`, `--net-rule` | Network isolation and allow/deny rules | `--no-net --net-rule "allow@api.example.com:tcp:443"` |
 
 ### Manage sandboxes
 
 ```bash
-msb ls                    # List all sandboxes.
-msb ls --running          # Running only.
-msb ps                    # Running sandboxes with status.
-msb ps -a                 # Include stopped sandboxes.
-msb inspect <name>        # Detailed sandbox info.
-msb metrics <name>        # Live CPU/memory/IO stats.
-msb logs <name>           # Captured stdout/stderr, works after stop.
-msb logs <name> -f        # Follow logs.
-msb stop <name>           # Graceful shutdown.
-msb stop --force <name>   # Force kill.
-msb stop -t 10 <name>     # Wait 10s, then force kill.
-msb rm <name>             # Remove stopped sandbox.
-msb rm --force <name>     # Stop and remove in one step.
+msb list                         # List all sandboxes.
+msb list --running               # Running only.
+msb list --label app=worker      # Filter by label.
+msb status                       # Running sandboxes with status.
+msb status -a                    # Include stopped sandboxes.
+msb inspect <name>               # Detailed sandbox info.
+msb metrics <name>               # Live CPU/memory/IO stats.
+msb logs <name>                  # Captured stdout/stderr, works after stop.
+msb logs <name> -f               # Follow logs.
+msb stop <name>                  # Graceful shutdown.
+msb stop --force <name>          # Force kill.
+msb stop -t 10 <name>            # Wait 10s, then force kill.
+msb remove <name>                # Remove stopped sandbox.
+msb remove --force <name>        # Stop and remove in one step.
+msb remove --label app=worker    # Remove every sandbox with label.
 ```
+
+### Copy files
+
+```bash
+msb copy ./local.txt dev:/tmp/local.txt
+msb copy dev:/tmp/out.txt ./out.txt
+msb copy dev:/tmp/a dev:/tmp/b
+msb copy dev:/tmp/a other:/tmp/a
+```
+
+Use `SANDBOX:/absolute/path` for sandbox endpoints. At least one endpoint must be a sandbox path.
 
 ### Manage images
 
 ```bash
-msb pull <image>          # Pre-cache an OCI image.
-msb images                # List cached images, alias for msb image ls.
-msb image inspect <img>   # Image metadata.
-msb rmi <image>           # Remove cached image, alias for msb image rm.
+msb image pull <image>              # Pre-cache an OCI image.
+msb image load --input image.tar    # Load Docker/OCI archive.
+msb image save <image> -o image.tar # Save cached image archive.
+msb image list                      # List cached images.
+msb image inspect <img>             # Image metadata.
+msb image remove <image>            # Remove cached image.
+msb image prune --yes               # Remove unused cached images.
 ```
 
 ### Manage volumes
 
 ```bash
-msb volume create <name>             # Create named volume.
-msb volume create <name> --size 5G   # With quota.
-msb volume ls                        # List volumes.
-msb volume inspect <name>            # Volume details.
-msb volume rm <name>                 # Remove volume.
+msb volume create <name>                         # Create named volume.
+msb volume create <name> --kind disk --size 5G   # Disk-backed volume.
+msb volume create <name> --size 5G               # Directory volume with quota.
+msb volume list                                  # List volumes.
+msb volume inspect <name>                        # Volume details.
+msb volume remove <name>                         # Remove volume.
 ```
 
 ### Volume mounts
@@ -172,6 +189,9 @@ msb run -v ./project:/app python -- python /app/script.py
 msb volume create mydata
 msb run -v mydata:/data alpine -- sh -c "echo 'test' > /data/file.txt"
 msb run -v mydata:/data alpine -- cat /data/file.txt
+
+# Explicit disk-backed named volume mount.
+msb run --mount-named docker-data:/var/lib/docker:kind=disk,size=20G docker:dind
 ```
 
 ### Manage snapshots
@@ -182,29 +202,32 @@ stopped-only.
 ```bash
 msb stop baseline
 msb snapshot create after-setup --from baseline
+msb snapshot create after-setup --from baseline --label stage=ready --integrity
 msb run --name worker --snapshot after-setup -- python -V
-msb snapshot ls
+msb snapshot list
 msb snapshot inspect after-setup
+msb snapshot inspect after-setup --verify
 msb snapshot verify after-setup
 msb snapshot export after-setup /tmp/after-setup.tar.zst --with-image
 msb snapshot import /tmp/after-setup.tar.zst
-msb snapshot rm after-setup
+msb snapshot reindex
+msb snapshot remove after-setup
 ```
 
 ### Networking and security
 
 ```bash
 # No network access.
-msb run --network-policy none python -- python script.py
+msb run --no-net python -- python script.py
 
-# Public-only is the default. nonlocal allows LAN but blocks loopback,
-# link-local, and metadata.
-msb run --network-policy public-only python -- python script.py
-msb run --network-policy nonlocal python -- python script.py
+# Public-only egress is the default when no custom rules are set.
+msb run python -- python script.py
 
-# Deny specific domains.
-msb run --deny-domain "ads.example.com" python
-msb run --deny-domain-suffix ".tracking.com" python
+# Allowlist specific destinations.
+msb run --net-default deny --net-rule "allow@api.example.com:tcp:443" python
+
+# Deny specific suffixes while otherwise using the default public egress model.
+msb run --net-rule "deny@*.tracking.com" python
 
 # Inject secrets. Placeholder substitution means the real value stays on host.
 msb run --secret "OPENAI_API_KEY=$OPENAI_API_KEY@api.openai.com" python
@@ -219,25 +242,25 @@ msb run --trust-host-cas python
 msb run --max-connections 10 python
 ```
 
+Network rule tokens use `<action>[:<direction>]@<target>[:<proto>[:<ports>]]`. Targets can be IP/CIDR values, exact domains, suffixes such as `*.example.com`, or groups such as `public`, `private`, `loopback`, `metadata`, and `any`.
+
 ### Registry authentication
 
 ```bash
 msb registry login ghcr.io --username octocat
 printf '%s\n' "$GHCR_TOKEN" | msb registry login ghcr.io --username octocat --password-stdin
 msb registry logout ghcr.io
-msb registry ls
+msb registry list
 ```
 
-### Install sandbox as command
+### SSH and SFTP
 
 ```bash
-msb install python          # Install as 'python' command.
-msb install --name py python  # Custom name.
-msb install --tmp alpine    # Fresh sandbox on every invocation.
-msb install --list          # Show installed commands.
-msb uninstall py            # Remove.
-msb self update             # Update msb and libkrunfw.
-msb self uninstall          # Remove msb and shell configuration.
+msb ssh devbox
+msb ssh devbox -- uname -a
+msb ssh authorize --file ~/.ssh/id_ed25519.pub
+msb ssh serve devbox --host 127.0.0.1 --port 2222
+sftp -P 2222 root@127.0.0.1
 ```
 
 ## Key behaviors

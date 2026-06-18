@@ -15,7 +15,8 @@ msb create python --name agent \
 
 msb exec agent -- python -c "$USER_CODE"
 msb logs agent --tail 100
-msb stop agent && msb rm agent
+msb stop agent
+msb remove agent
 ```
 
 ### TypeScript
@@ -185,8 +186,8 @@ await fs.copy_to_host("/app/output.csv", "./results/output.csv")
 ### Air-gapped
 
 ```bash
-msb pull python
-msb run --network-policy none python -- python -c "
+msb image pull python
+msb run --no-net python -- python -c "
 import urllib.request
 try:
     urllib.request.urlopen('https://example.com')
@@ -209,7 +210,7 @@ sb = await Sandbox.create("isolated", image="python", network=Network.none())
 ### Allow public internet but deny trackers
 
 ```bash
-msb run --deny-domain-suffix ".tracking.com" python -- python script.py
+msb run --net-rule "deny@*.tracking.com" python -- python script.py
 ```
 
 ```typescript

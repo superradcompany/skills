@@ -20,6 +20,12 @@ Global logging flags:
 | `--trace` | Show all output including trace |
 | `--tree` | Display command tree with descriptions |
 
+Agent notes:
+
+- Use canonical command names in generated commands: `list`, `status`, `remove`, `copy`, `image list`, `image remove`, `volume list`, `volume remove`, `snapshot list`, and `snapshot remove`.
+- Avoid command aliases in new instructions. Alias handling exists for humans at the CLI, but canonical names are clearer and more stable for agent-authored scripts.
+- Do not run host installation-management commands such as command installation, runtime self-update, or runtime self-uninstall unless the user explicitly asks for host setup changes.
+
 ## Sandbox lifecycle
 
 ### msb run
@@ -41,8 +47,10 @@ msb run -d --name worker python -- python worker.py
 | `-c`, `--cpus` | Number of virtual CPUs |
 | `-m`, `--memory` | Memory allocation, such as `512M`, `1G` |
 | `-v`, `--volume` | Mount host path, named volume, tmpfs, or disk image (`SOURCE:DEST`) |
+| `--mount-dir`, `--mount-file`, `--mount-disk`, `--mount-named` | Explicit mount kind (`SOURCE:DEST[:OPTIONS]` or `NAME:DEST[:OPTIONS]`) |
 | `-p`, `--port` | Forward port (`HOST:GUEST` or `HOST:GUEST/udp`) |
 | `-e`, `--env` | Environment variable (`KEY=VALUE`) |
+| `--label` | Sandbox label (`KEY=VALUE`, or bare `KEY`), repeatable |
 | `-w`, `--workdir` | Working directory inside sandbox |
 | `--shell` | Default shell for `msb run` / attach sessions |
 | `-t`, `--tty` | Allocate a pseudo-terminal |
@@ -51,7 +59,7 @@ msb run -d --name worker python -- python worker.py
 | `--rlimit` | POSIX resource limit (`nofile=1024`, `nproc=64`, `as=1073741824`) |
 | `--detach-keys` | Key sequence to detach from interactive session |
 | `--replace` | Replace existing sandbox with same name |
-| `--replace-with-grace` | Grace between SIGTERM and SIGKILL during replace |
+| `--replace-with-timeout` | Grace between SIGTERM and SIGKILL during replace |
 | `-q`, `--quiet` | Suppress progress output |
 | `--entrypoint` | Override image entrypoint |
 | `--init` | Hand off PID 1 to this guest init binary after setup |
@@ -60,11 +68,14 @@ msb run -d --name worker python -- python worker.py
 | `-H`, `--hostname` | Guest hostname |
 | `-u`, `--user` | Guest user (`nobody`, `1000`, `1000:1000`) |
 | `--pull` | Pull policy: `always`, `if-missing`, `never` |
+| `--oci-upper-size` | Writable overlay upper size for OCI images |
 | `--log-level` | Runtime log level: `error`, `warn`, `info`, `debug`, `trace` |
 | `--tmpfs` | Mount tmpfs (`PATH` or `PATH:SIZE`) |
+| `--security` | In-guest security profile: `default` or `restricted` |
 | `--script` | Register a shell snippet (`NAME=BODY`). Wrapped with a shebang from `--shell` (default `/bin/sh`). Decodes `\n`, `\t`, `\r`, `\\`, `\"`, `\'`; unknown escapes pass through |
 | `--script-raw` | Register exact inline script contents (`NAME=BODY`). No escape decoding or shebang is added |
 | `--script-path` | Register a script from a host file (`NAME:PATH`). Contents read verbatim |
+| `--copy`, `--copy-file`, `--copy-dir`, `--mkdir`, `--rm` | Patch the rootfs before boot |
 | `--snapshot` | Boot from a snapshot artifact instead of an image |
 | `--max-duration` | Kill entire sandbox after duration |
 | `--idle-timeout` | Stop sandbox after inactivity duration |
@@ -73,17 +84,19 @@ Networking flags:
 
 | Flag | Description |
 |------|-------------|
-| `--no-network` | Disable all network access |
-| `--network-policy` | `none`, `public-only`, `nonlocal`, or `allow-all` |
-| `--deny-domain` | Deny egress to exact domain; repeatable |
-| `--deny-domain-suffix` | Deny egress to suffix such as `.ads.com`; repeatable |
+| `--no-net` | Disable all network access by default; combine with `--net-rule allow@...` for allowlists |
+| `--net-rule` | Add allow/deny rule tokens such as `allow@api.example.com:tcp:443` or `deny@*.ads.example.com` |
+| `--net-default` | Default action for unmatched traffic in both directions: `allow` or `deny` |
+| `--net-default-egress` | Default unmatched egress action |
+| `--net-default-ingress` | Default unmatched ingress action |
 | `--no-dns-rebind-protection` | Allow DNS responses to private/internal IPs |
 | `--dns-nameserver` | Upstream DNS server (`IP` or `IP:PORT`); repeatable |
 | `--dns-query-timeout-ms` | Per-DNS-query timeout |
+| `--net-ipv4-pool`, `--net-ipv6-pool` | Address pools for per-sandbox subnets |
 | `--max-connections` | Limit concurrent network connections |
 | `--trust-host-cas` | Ship host trusted root CAs into the guest |
 | `--secret` | Inject secret (`ENV=VALUE@HOST`) |
-| `--on-secret-violation` | `block`, `block-and-log`, or `block-and-terminate` |
+| `--on-secret-violation` | `block`, `block-and-log`, `block-and-terminate`, or `passthrough` |
 | `--tls-intercept` | Enable HTTPS inspection |
 | `--tls-intercept-port` | TCP port to inspect; default `443` |
 | `--tls-bypass` | Skip TLS interception for domain pattern |
@@ -91,6 +104,8 @@ Networking flags:
 | `--tls-intercept-ca-cert` | Custom interception CA certificate |
 | `--tls-intercept-ca-key` | Custom interception CA private key |
 | `--tls-upstream-ca-cert` | Additional upstream trust root; repeatable |
+
+Network rule tokens use `<action>[:<direction>]@<target>[:<proto>[:<ports>]]`. Targets can be IP/CIDR values, exact domains, suffixes such as `*.example.com`, or groups such as `public`, `private`, `multicast`, `loopback`, `link_local`, `metadata`, and `any`.
 
 When no `--` command is given, microsandbox uses the image entrypoint and cmd.
 If neither exists, an interactive shell starts. When `--` is present, the
@@ -104,17 +119,19 @@ Create and boot a sandbox without running a command. Takes the same flags as
 ```bash
 msb create python --name worker -c 2 -m 1G
 msb create --replace python --name worker
-msb create --replace-with-grace 30s python --name worker
+msb create --replace-with-timeout 30s python --name worker
 ```
 
 ### msb start
 
 ```bash
 msb start [OPTIONS] <NAME>
+msb start --label app=engine
 ```
 
 | Flag | Description |
 |------|-------------|
+| `--label` | Start every sandbox carrying this label; repeatable, AND-matched |
 | `-q`, `--quiet` | Suppress progress output |
 
 ### msb stop
@@ -123,24 +140,28 @@ msb start [OPTIONS] <NAME>
 msb stop devbox
 msb stop --force devbox
 msb stop -t 10 devbox
+msb stop --label app=engine
 ```
 
 | Flag | Description |
 |------|-------------|
+| `--label` | Stop every sandbox carrying this label; repeatable, AND-matched |
 | `-f`, `--force` | Force kill immediately |
 | `-t`, `--timeout` | Seconds to wait before force-kill |
 | `-q`, `--quiet` | Suppress progress output |
 
-### msb rm
+### msb remove
 
 ```bash
-msb rm devbox
-msb rm --force devbox
-msb rm worker-1 worker-2
+msb remove devbox
+msb remove --force devbox
+msb remove worker-1 worker-2
+msb remove --force --label app=engine
 ```
 
 | Flag | Description |
 |------|-------------|
+| `--label` | Remove every sandbox carrying this label; repeatable, AND-matched |
 | `-f`, `--force` | Stop if running, then remove |
 | `-q`, `--quiet` | Suppress progress output |
 
@@ -166,6 +187,21 @@ msb exec [OPTIONS] <NAME> -- <COMMAND>...
 
 The CLI auto-detects interactivity. Interactive terminal input uses attach/TTY
 mode; piped input captures stdout and stderr separately.
+
+### msb copy
+
+Copy files between the host and one or more sandboxes. Use `SANDBOX:/absolute/path` for sandbox endpoints. At least one endpoint must be a sandbox path.
+
+```bash
+msb copy ./local.txt devbox:/tmp/local.txt
+msb copy devbox:/tmp/out.txt ./out.txt
+msb copy devbox:/tmp/a devbox:/tmp/b
+msb copy devbox:/tmp/a otherbox:/tmp/a
+```
+
+| Flag | Description |
+|------|-------------|
+| `-q`, `--quiet` | Suppress progress output |
 
 ## Logs and inspection
 
@@ -208,23 +244,25 @@ Source tags:
 - `output`: PTY-mode combined stdout/stderr.
 - `system`: lifecycle markers plus runtime/kernel diagnostics.
 
-### msb ls
+### msb list
 
 ```bash
-msb ls
-msb ls --running
-msb ls --stopped
-msb ls --format json
-msb ls -q
+msb list
+msb list --running
+msb list --stopped
+msb list --label app=engine
+msb list --format json
+msb list -q
 ```
 
-### msb ps / status
+### msb status
 
 ```bash
-msb ps
-msb ps my-app
-msb ps -a
-msb ps --format json
+msb status
+msb status my-app
+msb status -a
+msb status --label app=engine
+msb status --format json
 ```
 
 ### msb metrics
@@ -244,11 +282,11 @@ msb inspect devbox --format json
 
 ## Images and registries
 
-### msb pull
+### msb image pull
 
 ```bash
-msb pull python
-msb pull ghcr.io/my-org/my-image:v1
+msb image pull python
+msb image pull ghcr.io/my-org/my-image:v1
 ```
 
 | Flag | Description |
@@ -261,14 +299,20 @@ msb pull ghcr.io/my-org/my-image:v1
 ### msb image
 
 ```bash
-msb image ls
-msb images
+msb image pull python
+msb image load --input image.tar
+docker save my-image:latest | msb image load --tag my-image:latest
+msb image save --output image.tar my-image:latest
+msb image save --format oci --output image.oci.tar my-image:latest
+msb image list
+msb image list --format json
 msb image inspect python
-msb image rm python
-msb rmi python
+msb image remove python
+msb image prune --yes
+msb image prune --format json
 ```
 
-Common flags: `--format json`, `-q`, and `--force` for removal.
+Common flags: `--format json`, `-q`, and `--force` for removal. `image prune` removes cached images not used by sandboxes and requires confirmation unless `--yes` is supplied.
 
 ### msb registry
 
@@ -276,7 +320,7 @@ Common flags: `--format json`, `-q`, and `--force` for removal.
 msb registry login ghcr.io --username octocat
 printf '%s\n' "$GHCR_TOKEN" | msb registry login ghcr.io --username octocat --password-stdin
 msb registry logout ghcr.io
-msb registry ls
+msb registry list
 ```
 
 Auth resolution order: explicit SDK auth, OS credential store, microsandbox
@@ -287,14 +331,14 @@ config, Docker credential config, then anonymous.
 ```bash
 msb volume create my-data
 msb volume create my-data --size 10G
-msb volume ls
-msb volume ls --format json
+msb volume create docker-data --kind disk --size 10G
+msb volume list
+msb volume list --format json
 msb volume inspect my-data
-msb volume rm my-data
+msb volume remove my-data
 ```
 
-Mount named volumes with `-v name:/guest/path`. Host bind mounts usually start
-with `/`, `./`, or `../`, matching Docker's convention.
+Mount named volumes with `-v name:/guest/path` or `--mount-named name:/guest/path[:OPTIONS]`. Host bind mounts usually start with `/`, `./`, or `../`, matching Docker's convention. `--mount-named` can create missing named volumes idempotently and accepts `kind=dir|disk`, `size=...` for disk-backed volumes, and `quota=...` for directory-backed volumes.
 
 ## Snapshots
 
@@ -306,60 +350,60 @@ msb snapshot create after-setup --from baseline
 msb snapshot create ./snaps/v1 --from baseline
 msb snapshot create after-setup --from baseline --label stage=ready --integrity
 msb run --name worker --snapshot after-setup -- python -V
-msb snapshot ls
+msb snapshot list
 msb snapshot inspect after-setup
 msb snapshot inspect after-setup --verify
 msb snapshot verify after-setup
-msb snapshot rm after-setup
-msb snapshot rm after-setup --force
+msb snapshot remove after-setup
+msb snapshot remove after-setup --force
 msb snapshot reindex
 msb snapshot export after-setup /tmp/snap.tar.zst
 msb snapshot export after-setup /tmp/snap.tar.zst --with-image
 msb snapshot import /tmp/snap.tar.zst
 ```
 
-## Install and self-management
+## SSH and SFTP
 
-### msb install
+### msb ssh
 
-Install a sandbox image as a command in `~/.microsandbox/bin/`.
+Start a native SSH client session into a sandbox. With no remote command, this opens an interactive shell. With `--`, the remaining tokens are joined into the remote shell command.
 
 ```bash
-msb install ubuntu
-msb install --name nodebox node
-msb install --tmp alpine
-msb install -c 2 -m 1G python
-msb install --list
+msb ssh devbox
+msb ssh devbox -- uname -a
+msb ssh --name serve -- uptime
+```
+
+### msb ssh authorize
+
+Add a public key to microsandbox's SSH authorization file.
+
+```bash
+msb ssh authorize --file ~/.ssh/id_ed25519.pub
+msb ssh authorize --key "ssh-ed25519 AAAA... user@host"
+cat ~/.ssh/id_ed25519.pub | msb ssh authorize --stdin
+```
+
+### msb ssh serve
+
+Serve a sandbox over SSH for OpenSSH, SFTP, local TCP forwarding, dynamic TCP forwarding, or `ProxyCommand` clients.
+
+```bash
+msb ssh serve devbox
+msb ssh serve devbox --host 127.0.0.1 --port 2222
+msb ssh serve devbox --stdio
+sftp -P 2222 root@127.0.0.1
+ssh -p 2222 -L 8080:127.0.0.1:80 root@127.0.0.1
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-n`, `--name` | Command alias name |
-| `-c`, `--cpus` | Virtual CPUs |
-| `-m`, `--memory` | Memory allocation |
-| `-v`, `--volume` | Mount volume |
-| `-w`, `--workdir` | Working directory |
-| `--shell` | Shell for interactive sessions |
-| `-e`, `--env` | Environment variable |
-| `-f`, `--force` | Overwrite alias |
-| `--no-pull` | Do not pull image before installing |
-| `--tmp` | Fresh sandbox on every invocation |
-| `-l`, `--list` | List installed commands |
+| `--host` | Listener host, default `127.0.0.1` |
+| `--port` | Listener port, default `2222` |
+| `--stdio` | Serve one SSH transport over stdin/stdout for OpenSSH `ProxyCommand` |
 
-### msb uninstall
+Reverse forwarding (`-R`) and stream-local forwarding are not supported.
 
-```bash
-msb uninstall nodebox
-msb uninstall ubuntu alpine
-```
+## Host installation management
 
-### msb self
-
-```bash
-msb self update
-msb self update --force
-msb self uninstall
-msb self uninstall --yes
-```
-
-`msb self update` also has alias `upgrade`.
+This reference intentionally focuses on sandbox operations. Use host installation-management commands only when the user explicitly asks to install commands, uninstall commands, update the local runtime, or remove the local runtime. For current details, use `msb --tree`, `msb install --help`, `msb uninstall --help`, or `msb self --help` on the user's machine.

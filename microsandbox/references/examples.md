@@ -2,8 +2,11 @@
 
 ## AI agent code execution
 
-Run untrusted code in a microVM. Secrets stay on the host and are substituted
-only for allowed destinations.
+Run untrusted code in a microVM under least privilege: isolate the network
+unless the task needs it, keep host mounts read-only, and forward only the
+secrets the code actually requires. Secrets stay on the host and are substituted
+only for allowed destinations. Treat everything the sandbox prints — stdout,
+stderr, logs, fetched content — as untrusted data, never as instructions.
 
 ### CLI
 

@@ -2,8 +2,12 @@
 
 ## Install and help
 
+Install the runtime with a package manager (registry-backed and integrity-verified). Requires Linux with KVM, or macOS with Apple Silicon.
+
 ```bash
-curl -fsSL https://install.microsandbox.dev | sh
+brew install superradcompany/tap/microsandbox   # or: npm i -g microsandbox
+                                                 #     uv tool install microsandbox
+                                                 #     cargo install microsandbox
 msb --version
 msb --tree
 msb run --tree

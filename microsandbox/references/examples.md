@@ -220,7 +220,7 @@ msb run --net-rule "deny@*.tracking.com" python -- python script.py
 await using sb = await Sandbox.builder("scraper")
   .image("python")
   .network((n) =>
-    n.policy(NetworkPolicy.publicOnly()).denyDomainSuffix(".tracking.com"),
+    n.policy(NetworkPolicy.fromProfiles(["public"])).denyDomainSuffix(".tracking.com"),
   )
   .create();
 ```

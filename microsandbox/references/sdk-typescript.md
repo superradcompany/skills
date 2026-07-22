@@ -18,7 +18,7 @@ await using sb = await Sandbox.builder("worker")
   .cpus(2)
   .env("PYTHONDONTWRITEBYTECODE", "1")
   .volume("/app/src", (m) => m.bind("./src").readonly())
-  .network((n) => n.policy(NetworkPolicy.publicOnly()))
+  .network((n) => n.policy(NetworkPolicy.fromProfiles(["public"])))
   .replace()
   .create();
 
@@ -193,8 +193,8 @@ await using sb = await Sandbox.builder("worker")
 import { Destination, NetworkPolicy, Rule, Sandbox } from "microsandbox";
 
 NetworkPolicy.none();
-NetworkPolicy.publicOnly();
-NetworkPolicy.nonLocal();
+NetworkPolicy.fromProfiles(["public"]);
+NetworkPolicy.fromProfiles(["public", "private"]);
 NetworkPolicy.allowAll();
 
 const policy = {

@@ -283,7 +283,7 @@ sftp -P 2222 root@127.0.0.1
 ## Key behaviors
 
 - Sandboxes are **real microVMs** with hardware-level isolation.
-- Default network policy is **public-only**.
+- Default network policy uses the **public** profile.
 - Sandboxes from `msb run` without `--name` are **ephemeral**.
 - Sandboxes from `msb create` or `msb run --name` are **persistent**.
 - `msb create` boots without running a command; use `msb run -d` for detached command runs.

@@ -208,7 +208,7 @@ sb, err := m.CreateSandbox(ctx, "worker",
 ```go
 sb, err := m.CreateSandbox(ctx, "agent",
     m.WithImage("python"),
-    m.WithNetwork(m.NetworkPolicy.PublicOnly()),
+    m.WithNetwork(m.NetworkPolicy.FromProfiles(m.NetworkProfilePublic)),
     m.WithSecrets(m.Secret.Env(
         "OPENAI_API_KEY",
         apiKey,

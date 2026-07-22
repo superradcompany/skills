@@ -11,7 +11,7 @@ The Python SDK is async-first. Use `await Sandbox.create(...)` or
 
 ```python
 import asyncio
-from microsandbox import Network, Sandbox, Volume
+from microsandbox import Network, NetworkProfile, Sandbox, Volume
 
 async def main():
     async with await Sandbox.create(
@@ -23,7 +23,7 @@ async def main():
         volumes={
             "/app/src": Volume.bind("./src", readonly=True),
         },
-        network=Network.public_only(),
+        network=Network.from_profiles(NetworkProfile.PUBLIC),
         replace=True,
     ) as sb:
         output = await sb.exec("python", ["-c", "print('hello')"])
@@ -72,7 +72,7 @@ sb = await Sandbox.create(
         "/disk": Volume.disk("./data.qcow2", fstype="ext4", readonly=True),
     },
     ports={8000: 8000},
-    network=Network.public_only(),
+    network=Network.from_profiles(NetworkProfile.PUBLIC),
 )
 ```
 
@@ -188,14 +188,15 @@ Volume.disk("./data.qcow2", fstype="ext4", readonly=True)
 ## Networking and secrets
 
 ```python
-from microsandbox import Network, Secret
+from microsandbox import Network, NetworkPolicy, NetworkProfile, Secret
 
 Network.none()
-Network.public_only()
+Network.from_profiles(NetworkProfile.PUBLIC)
+Network.from_profiles(NetworkProfile.PUBLIC, NetworkProfile.PRIVATE)
 Network.allow_all()
 
 network = Network(
-    policy="public_only",
+    policy=NetworkPolicy.from_profiles([NetworkProfile.PUBLIC]),
     deny_domains=["ads.example.com"],
     deny_domain_suffixes=[".tracking.com"],
     max_connections=50,

@@ -9,7 +9,7 @@ tokio = { version = "1", features = ["full"] }
 ## Sandbox
 
 ```rust
-use microsandbox::{NetworkPolicy, Sandbox};
+use microsandbox::{NetworkPolicy, NetworkProfile, Sandbox};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .cpus(2)
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .volume("/app/src", |v| v.bind("./src").readonly())
-        .network(|n| n.policy(NetworkPolicy::public_only()))
+        .network(|n| n.policy(NetworkPolicy::from_profiles([NetworkProfile::Public])))
         .replace()
         .create()
         .await?;
@@ -213,17 +213,17 @@ let sb = Sandbox::builder("worker")
 ## Networking and secrets
 
 ```rust
-use microsandbox::{NetworkPolicy, Sandbox};
+use microsandbox::{NetworkPolicy, NetworkProfile, Sandbox};
 
 NetworkPolicy::none();
-NetworkPolicy::public_only();
-NetworkPolicy::non_local();
+NetworkPolicy::from_profiles([NetworkProfile::Public]);
+NetworkPolicy::from_profiles([NetworkProfile::Public, NetworkProfile::Private]);
 NetworkPolicy::allow_all();
 
 let sb = Sandbox::builder("agent")
     .image("python")
     .network(|n| n
-        .policy(NetworkPolicy::public_only())
+        .policy(NetworkPolicy::from_profiles([NetworkProfile::Public]))
         .deny_domain("ads.example.com")
         .deny_domain_suffix(".tracking.com")
         .max_connections(50)

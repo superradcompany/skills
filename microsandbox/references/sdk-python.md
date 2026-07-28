@@ -39,7 +39,14 @@ sb = await Sandbox.create("worker", image="alpine")
 session = Sandbox.create_with_progress("worker", image="alpine")
 sb = await Sandbox.start("worker", detached=False)
 handle = await Sandbox.get("worker")
-all_sandboxes = await Sandbox.list()
+page = await Sandbox.list()
+filtered = await Sandbox.list_with(limit=50, labels={"team": "backend"})
+if filtered.next_cursor is not None:
+    next_page = await Sandbox.list_with(
+        cursor=filtered.next_cursor,
+        limit=50,
+        labels={"team": "backend"},
+    )
 await Sandbox.remove("worker")
 ```
 

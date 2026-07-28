@@ -66,7 +66,18 @@ sb, err = m.CreateSandboxDetached(ctx, "worker", m.WithImage("alpine"))
 sb, err = m.StartSandbox(ctx, "worker")
 sb, err = m.StartSandboxDetached(ctx, "worker")
 handle, err := m.GetSandbox(ctx, "worker")
-all, err := m.ListSandboxes(ctx)
+page, err := m.ListSandboxes(ctx)
+filtered, err := m.ListSandboxesWith(ctx,
+    m.WithListLimit(50),
+    m.WithListLabels(map[string]string{"team": "backend"}),
+)
+if filtered.NextCursor != nil {
+    nextPage, err := m.ListSandboxesWith(ctx,
+        m.WithListLimit(50),
+        m.WithListCursor(*filtered.NextCursor),
+        m.WithListLabels(map[string]string{"team": "backend"}),
+    )
+}
 err = m.RemoveSandbox(ctx, "worker")
 metrics, err := m.AllSandboxMetrics(ctx)
 ```

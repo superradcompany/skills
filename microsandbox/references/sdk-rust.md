@@ -2,7 +2,7 @@
 
 ```toml
 [dependencies]
-microsandbox = "0.6.7"
+microsandbox = "0.6.8"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -49,7 +49,12 @@ let builder = Sandbox::builder("worker");
 let sb = Sandbox::start("worker").await?;
 let sb = Sandbox::start_detached("worker").await?;
 let handle = Sandbox::get("worker").await?;
-let all = Sandbox::list().await?;
+let page = Sandbox::list().await?;
+let filtered = Sandbox::list_with(|list| list.limit(50).label("team", "backend")).await?;
+let next = match filtered.next_cursor {
+    Some(cursor) => Some(Sandbox::list_with(|list| list.limit(50).cursor(cursor).label("team", "backend")).await?),
+    None => None,
+};
 Sandbox::remove("worker").await?;
 ```
 

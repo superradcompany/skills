@@ -42,7 +42,15 @@ const builder = Sandbox.builder("worker");
 const sb = await Sandbox.start("worker");
 const sbDetached = await Sandbox.startDetached("worker");
 const handle = await Sandbox.get("worker");
-const all = await Sandbox.list();
+const page = await Sandbox.list();
+const filtered = await Sandbox.listWith((list) =>
+  list.limit(50).label("team", "backend"),
+);
+const next = filtered.nextCursor
+  ? await Sandbox.listWith((list) =>
+      list.limit(50).cursor(filtered.nextCursor!).label("team", "backend"),
+    )
+  : undefined;
 await Sandbox.remove("worker");
 ```
 

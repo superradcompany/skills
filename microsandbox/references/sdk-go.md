@@ -4,6 +4,10 @@
 go get github.com/superradcompany/microsandbox/sdk/go
 ```
 
+## Backend selection
+
+The default backend is Local. Select Cloud explicitly with `MSB_BACKEND=cloud` plus `MSB_API_KEY`, or with a cloud `MSB_PROFILE`/`active_profile`. `MSB_API_KEY` and `MSB_API_URL` never select Cloud on their own.
+
 The Go SDK uses top-level functions plus functional options. Call
 `EnsureInstalled(ctx)` during startup to surface runtime install errors early.
 

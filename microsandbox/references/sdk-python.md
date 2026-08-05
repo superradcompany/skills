@@ -4,6 +4,10 @@
 pip install microsandbox
 ```
 
+## Backend selection
+
+The default backend is Local. Select Cloud explicitly with `MSB_BACKEND=cloud` plus `MSB_API_KEY`, with a cloud `MSB_PROFILE`/`active_profile`, or programmatically with `set_default_backend("cloud", api_key=key)`. `MSB_API_KEY` and `MSB_API_URL` never select Cloud on their own.
+
 The Python SDK is async-first. Use `await Sandbox.create(...)` or
 `async with await Sandbox.create(...)` for automatic cleanup.
 

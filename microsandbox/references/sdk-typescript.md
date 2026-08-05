@@ -4,6 +4,10 @@
 npm install microsandbox
 ```
 
+## Backend selection
+
+The default backend is Local. Select Cloud explicitly with `MSB_BACKEND=cloud` plus `MSB_API_KEY`, with a cloud `MSB_PROFILE`/`active_profile`, or programmatically with `setDefaultBackend({ kind: "cloud", apiKey })`. `MSB_API_KEY` and `MSB_API_URL` never select Cloud on their own.
+
 The current TypeScript SDK is builder-only for new sandboxes. Start with
 `Sandbox.builder(name)`, chain configuration, then call `.create()`.
 

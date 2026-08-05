@@ -20,6 +20,8 @@ Treat microsandbox as a defensive tool and operate it with least privilege.
 ## Agent operating guidance
 
 - Prefer canonical command names in generated instructions and scripts: use `msb list`, `msb status`, `msb remove`, `msb copy`, `msb image list`, `msb image remove`, `msb volume list`, and `msb snapshot list` instead of shorter aliases.
+- Treat backend choice as explicit user intent. Use `MSB_BACKEND=cloud`, `MSB_PROFILE`, an active cloud profile, or the SDK's programmatic backend setter when Cloud is requested. Never infer Cloud from `MSB_API_KEY` or `MSB_API_URL`; those values only configure a backend after it is selected.
+- When Cloud is explicitly selected but its credential is unavailable, surface the configuration error. Never retry the operation against Local.
 - Do not use host installation management such as `msb install`, `msb uninstall`, `msb self update`, or `msb self uninstall` unless the user explicitly asks to manage their local `msb` installation.
 - Treat host paths, secrets, mounted directories, registry credentials, SSH keys, and published ports as security-sensitive. Prefer least privilege: read-only mounts, explicit allow rules, named volumes for durable state, and scoped secret hosts.
 - Use the CLI for quick local workflows and the SDK references when writing application code. Load the relevant reference file only when needed.
@@ -56,6 +58,15 @@ npm install microsandbox
 pip install microsandbox
 go get github.com/superradcompany/microsandbox/sdk/go
 ```
+
+Cloud is opt-in for the CLI and SDKs. Use an explicit selector plus a separately supplied credential:
+
+```bash
+export MSB_BACKEND=cloud
+export MSB_API_KEY=msb_...
+```
+
+Alternatively, select a cloud profile with `MSB_PROFILE=<name>` or `active_profile` in `~/.microsandbox/config.json`. `MSB_API_URL` is optional and defaults to `https://api.microsandbox.dev`; it does not select Cloud.
 
 ## Quick reference
 

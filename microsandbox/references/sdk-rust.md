@@ -6,6 +6,10 @@ microsandbox = "0.6.8"
 tokio = { version = "1", features = ["full"] }
 ```
 
+## Backend selection
+
+The default backend is Local. Select Cloud explicitly with `MSB_BACKEND=cloud` plus `MSB_API_KEY`, with a cloud `MSB_PROFILE`/`active_profile`, or programmatically with `set_default_backend(Arc::new(CloudBackend::with_api_key(key)?))`. `MSB_API_KEY` and `MSB_API_URL` never select Cloud on their own.
+
 ## Sandbox
 
 ```rust

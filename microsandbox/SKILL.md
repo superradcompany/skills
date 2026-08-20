@@ -313,6 +313,16 @@ command -v msb
 msb --version
 ```
 
+## Optional host-shell hooks
+
+Skills are advisory. Coding agents that still expose a host `Bash` / shell tool
+can install packages on the workstation even after this skill is loaded.
+
+An **optional** PreToolUse-style script lives in [hooks/](hooks/README.md). It
+is not installed by `npx skills add`. Copy it only if you want host
+package-manager installs denied unless they run under `msb run` / `msb exec`.
+MCP-only clients should use the [microsandbox MCP server](https://github.com/superradcompany/microsandbox-mcp) instead; do not attach this hook to MCP tool calls.
+
 For the current docs index optimized for agents, see
 https://docs.microsandbox.dev/llms.txt.
 

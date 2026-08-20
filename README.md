@@ -52,6 +52,7 @@ npx skills add superradcompany/skills --skill microsandbox
 | File | Description |
 |------|-------------|
 | `SKILL.md` | Core instructions for using the `msb` CLI |
+| `hooks/` | Optional coding-agent PreToolUse script (not installed by `npx skills add`) |
 | `scripts/setup.sh` | Installs `msb` + `libkrunfw` via official installer |
 | `references/cli-reference.md` | Agent-oriented `msb` command reference for sandbox operations |
 | `references/sdk-rust.md` | Rust SDK quick reference |

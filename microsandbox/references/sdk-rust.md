@@ -2,7 +2,7 @@
 
 ```toml
 [dependencies]
-microsandbox = "0.6.11"
+microsandbox = "0.6.12"
 tokio = { version = "1", features = ["full"] }
 ```
 

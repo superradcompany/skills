@@ -60,7 +60,7 @@ host = re.compile(
     r"""
     (?:^|[\n;&]|&&|\|\|)
     \s*(?:sudo\s+)?
-    (?:
+    (?P<token>
         apt(?:-get)?\s+(?:install|upgrade|remove|purge|autoremove)
       | apk\s+add
       | brew\s+(?:install|upgrade|reinstall|uninstall)
@@ -81,20 +81,61 @@ host = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+msb_wrap = re.compile(r"\bmsb\s+(?:run|exec)\b", re.IGNORECASE)
 
-found = None
+
+def has_unquoted_separator(text):
+    """True when a shell command separator appears outside quotes."""
+    in_single = False
+    in_double = False
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if in_single:
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == '"':
+                in_double = False
+            i += 1
+            continue
+        if ch == "'":
+            in_single = True
+            i += 1
+            continue
+        if ch == '"':
+            in_double = True
+            i += 1
+            continue
+        if ch in "\n;&":
+            return True
+        if ch == "|" and i + 1 < n and text[i + 1] == "|":
+            return True
+        i += 1
+    return False
+
+
+def msb_wraps_token(token_start):
+    """True only when an msb run|exec invocation contains this token."""
+    prefix = cmd[:token_start]
+    wraps = list(msb_wrap.finditer(prefix))
+    if not wraps:
+        return False
+    between = prefix[wraps[-1].end():]
+    return not has_unquoted_separator(between)
+
+
 for match in host.finditer(cmd):
-    found = match
-    break
-if found is None:
-    sys.exit(1)
+    if not msb_wraps_token(match.start("token")):
+        sys.exit(0)
 
-# In-box path: msb run|exec appears before the host-install token.
-msb = re.search(r"\bmsb\s+(?:run|exec)\b", cmd, re.IGNORECASE)
-if msb and msb.start() < found.start():
-    sys.exit(1)
-
-sys.exit(0)
+sys.exit(1)
 PY
 }
 
@@ -140,6 +181,7 @@ run_self_test() {
   expect_deny pip_user 'pip3 install --user black'
   expect_deny cargo 'cargo install ripgrep'
   expect_deny apt_then_msb 'apt-get install -y ffmpeg; msb run debian -- true'
+  expect_deny msb_then_apt 'msb run debian -- true; apt-get install -y ffmpeg'
 
   payload='{"tool_name":"Bash","tool_input":{"command":"brew install ffmpeg"}}'
   out=$(printf '%s\n' "$payload" | "$0") || {
@@ -168,6 +210,24 @@ run_self_test() {
     printf 'ok mcp payload silence\n'
   fi
 
+  expect_hook_silence() {
+    label=$1
+    json=$2
+    out=$(printf '%s\n' "$json" | "$0") || {
+      printf 'FAIL %s invocation\n' "$label" >&2
+      fail=1
+      return
+    }
+    if [ -n "$out" ]; then
+      printf 'FAIL expected silence for %s, got: %s\n' "$label" "$out" >&2
+      fail=1
+    else
+      printf 'ok %s silence\n' "$label"
+    fi
+  }
+  expect_hook_silence missing_tool_name '{"tool_input":{"command":"apt-get install -y ffmpeg"}}'
+  expect_hook_silence non_shell_tool '{"tool_name":"Write","tool_input":{"command":"apt-get install -y ffmpeg"}}'
+
   if [ "$fail" -ne 0 ]; then
     printf 'force-host-installs-into-msb self-test failed\n' >&2
     return 1
@@ -195,10 +255,13 @@ if not raw.strip():
 data=json.loads(raw)
 name = (data.get("tool_name") or data.get("tool") or "")
 name_l = str(name).lower()
-# Only host-shell tools. MCP / structured sandbox tools are not this hook.
-if name_l and not any(tok in name_l for tok in ("bash", "shell", "terminal", "powershell")):
-    if "command" in name_l or name_l.startswith("mcp"):
-        raise SystemExit(0)
+# Only host-shell tools. Missing names, MCP, and other tools fail open.
+if not name_l:
+    raise SystemExit(0)
+if name_l.startswith("mcp"):
+    raise SystemExit(0)
+if not any(tok in name_l for tok in ("bash", "shell", "terminal", "powershell", "command")):
+    raise SystemExit(0)
 ti=data.get("tool_input") or data.get("input") or data.get("arguments") or {}
 if not isinstance(ti, dict):
     ti = {}

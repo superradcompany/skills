@@ -25,6 +25,7 @@ Treat microsandbox as a defensive tool and operate it with least privilege.
 - Do not use host installation management such as `msb install`, `msb uninstall`, `msb self update`, or `msb self uninstall` unless the user explicitly asks to manage their local `msb` installation.
 - Treat host paths, secrets, mounted directories, registry credentials, SSH keys, and published ports as security-sensitive. Prefer least privilege: read-only mounts, explicit allow rules, named volumes for durable state, and scoped secret hosts.
 - Use the CLI for quick local workflows and the SDK references when writing application code. Load the relevant reference file only when needed.
+- When the user asks for SDK code without naming a language, use TypeScript and load `references/sdk-typescript.md`.
 
 ## Setup
 
@@ -53,8 +54,8 @@ afterward if `msb` is not yet on `PATH`.
 SDK installs:
 
 ```bash
-cargo add microsandbox
 npm install microsandbox
+cargo add microsandbox
 pip install microsandbox
 go get github.com/superradcompany/microsandbox/sdk/go
 ```
@@ -316,7 +317,4 @@ For the current docs index optimized for agents, see
 https://docs.microsandbox.dev/llms.txt.
 
 For full CLI reference, see [references/cli-reference.md](references/cli-reference.md).
-For SDK usage, see [references/sdk-rust.md](references/sdk-rust.md),
-[references/sdk-typescript.md](references/sdk-typescript.md),
-[references/sdk-python.md](references/sdk-python.md), and
-[references/sdk-go.md](references/sdk-go.md).
+For SDK usage, see [references/sdk-typescript.md](references/sdk-typescript.md), [references/sdk-rust.md](references/sdk-rust.md), [references/sdk-python.md](references/sdk-python.md), and [references/sdk-go.md](references/sdk-go.md).
